@@ -1,0 +1,1568 @@
+---
+title: Integration of omics and clinical data of the hormonal, metabolic, inflammatory,
+  and oxidative response in the different macronutrients of the diet
+author: "Edmond Geraud"
+subtitle: '`r params$subtitulo`'
+date: '`r format(Sys.Date(),"%e de %B, %Y")`' 
+output:
+  prettydoc::html_pretty:
+    theme: cayman
+    highlight: github
+    toc: true
+  html_document:
+    toc: true
+    toc_depth: 2
+header-includes:
+  - \usepackage[english]{babel}
+params:
+  
+  file_IP: Integromics_IPmarkers.xlsx
+  file_metabolome: Integromics_Metabolome.xlsx
+  file_general: Integromics_1.xlsx
+  file_microbiota : integromics_microbiota.xlsx
+  folder.data: ../../datos
+  subtitulo: Integration of all data sets at basal level ( log).
+geometry: margin=2cm
+---
+
+```{r setup, include=FALSE}
+require(knitr)
+# include this code chunk as-is to set options
+opts_chunk$set(comment = NA, prompt = TRUE, tidy = T, 
+               fig.width = 7, fig.height = 7,echo = TRUE, 
+               message = FALSE, warning = FALSE, cache=TRUE, fig_caption = TRUE)
+Sys.setlocale("LC_TIME", "C")
+```
+
+## Load the libraries
+
+```{r libraries}
+
+list.of.packages <- c("xlsx","kableExtra","dplyr","ggplot2","egg","cowplot","patchwork","gridExtra","UsingR","car","lattice","ggpubr","ggbreak","GGally","reshape2","ggcorrplot","corrplot","rela","ggrepel","factoextra","chemometrics","sparsepca","vegan","ca","ade4","pls","OmicsPLS")
+new.packages <- list.of.packages[!(list.of.packages %in% installed.packages()[,"Package"])] ## check for packages not installed 
+if(length(new.packages)) install.packages(new.packages) ## install packages if necessary
+res<-unlist(lapply(list.of.packages, require,character.only = T)) ## load packages needed for the session
+if(any(res==F)){
+  list.of.packages[which(res==F)]  ## show those package if you have troubles to install.
+}
+
+list.of.bioc.packages <- c("phyloseq","pcaMethods","ropls","mixOmics")
+new.packages.bioc <- list.of.packages[!(list.of.bioc.packages %in% installed.packages()[,"Package"])]
+if(length(new.packages.bioc)) BiocManager::install(new.packages.bioc)
+res.bioc <- unlist(lapply(list.of.bioc.packages, require,character.only = T)) 
+if(any(res.bioc==F)){
+  list.of.packages[which(res.bioc==F)]  ## show those package if you have troubles to install.
+}
+```
+
+
+# Functions for loading data (microbiome)
+
+```{r}
+proces_bacteria <- function(datos,tipo){
+
+	Order <- bacteria_phylum.abs$Order
+	variables_in_bacteria <- general_data[general_data$Orden %in% Order , ]
+	Sample<-variables_in_bacteria$Paciente
+
+
+	if(tipo=="genera"){
+
+		Order <- Order
+
+		X <- datos[-1,-1]
+		X<-apply(X,2,as.numeric)
+		colnames(X) <- datos[1,2:ncol(datos)]
+		rownames(X) <- Sample
+		X.rel <- 100*X/rowSums(X)
+
+
+	} else if(tipo=="phylum"){
+
+		X <- datos[,-c(1:2)]
+		colnames(X) <- colnames(datos)[3:ncol(datos)]
+		rownames(X) <- Sample
+		X.rel<-100*X/rowSums(X)
+	}
+
+	GROUP <-variables_in_bacteria$GROUP
+	SEX <- variables_in_bacteria$SEX
+	OBESE<- variables_in_bacteria$OBESE
+
+	X<-as.data.frame(X)
+	X.rel<-as.data.frame(X.rel)
+
+	X$GROUP<-GROUP
+	X$SEX<-SEX
+	X$OBESE<-OBESE
+
+
+	X.rel$GROUP<-GROUP
+	X.rel$SEX<-SEX
+	X.rel$OBESE<-OBESE
+
+	return(list(abs=X,rel=X.rel))
+
+}
+
+
+low.count.removal = function(
+                        data, # OTU count data frame of size n (sample) x p (OTU)
+                        percent=0.01 # cutoff chosen
+                        ){
+    keep.otu = which(colSums(data)*100/(sum(colSums(data))) > percent)
+    data.filter = data[,keep.otu]
+    return(list(data.filter = data.filter, keep.otu = keep.otu))
+}
+
+relative.fn <-function(data){
+  
+  return(100*data/colSums(data))
+  
+}
+
+
+```
+
+
+# Load the data
+
+## Clinical data.
+
+```{r}
+general_data <- read.xlsx(file.path(params$folder.data,params$file_general),sheetIndex =1)
+general_data$SEX <- factor(general_data$SEX, levels = c(0, 2), labels = c("Female", "Male"))
+general_data$OBESE <- factor(general_data$OBESE, levels = c(0, 1), labels = c("No Obese", "Obese"))
+general_data$GROUP <- factor(general_data$GROUP, levels = c(0, 1, 2), labels = c("Female",  "PCOS", "Male"))
+```
+
+## IP data.
+
+```{r}
+IP_file<-file.path(params$folder.data,file=params$file_IP) ## file path of the data
+IP.tmp<-read.xlsx(IP_file,sheetIndex = 1)
+IP<-IP.tmp[,-7] # remove the missin values column
+IP$SEX <- factor(IP$SEX,levels=c(0,2),labels = c("Female","Male"))
+IP$OBESE <- factor(IP$OBESE,levels=c(0,1),labels = c("No Obese","Obese"))
+IP$GROUP <- factor(IP$GROUP,levels=c(0,1,2),labels = c("Female","PCOS","Male"))
+```
+
+
+## Metabolome data
+
+```{r}
+metabolome_file<-file.path(params$folder.data,file=params$file_metabolome) ## file path of the data
+metabolome.tmp<-read.xlsx(metabolome_file,sheetIndex = 1) # read the data
+metabolites_name <- read.xlsx(metabolome_file,sheetIndex = 2)$Metabolitos # read the names of the metabolites
+any(is.na(metabolome.tmp)) # there is a row of missing values.
+metabolome<-metabolome.tmp[-nrow(metabolome.tmp),] ## remove the missing value row
+metabolome$GROUP<-general_data$GROUP ## add GROUP variable 
+metabolome$OBESE <- general_data$OBESE ## add OBESE variables.
+```
+
+## Microbiome data.
+
+```{r}
+bacteria_phylum.abs <- as.data.frame(read.xlsx(file.path(params$folder.data,params$file_microbiota), sheetIndex = 1))
+bacteria_genera.abs <- as.data.frame(t(read.xlsx(file.path(params$folder.data,params$file_microbiota), sheetIndex = 3)))
+phylum.list <- proces_bacteria(bacteria_phylum.abs,tipo="phylum")
+genera.list <- proces_bacteria(bacteria_genera.abs,tipo="genera")
+
+phylum.abs <- phylum.list$abs;phylum.rel<-phylum.list$rel
+genera.abs <- genera.list$abs;genera.rel<-genera.list$rel
+```
+
+
+# Preprocess data according to the microbiome.
+
+Because we have less subjects on the microbiome, and we have phylum and genera with variables with no records across all samples, we have to clean that.
+
+Furthermore, we have to take care only the basal levels across all blocks. Also we have to clean the data on the metabolome, IP for repeated variables.
+
+```{r}
+variables_in_bacteria <- general_data[general_data$Orden %in% bacteria_phylum.abs$Order, ]
+```
+
+Because, we only take care of the GROUP, and OBESE variables on the analysis, we can get rid off this variables and store them apart in a new object. Furthermore, we have to have the same names for the rows, so let's keep it in another object.
+
+```{r}
+sujetos <- variables_in_bacteria$Paciente
+GROUP <- variables_in_bacteria$GROUP
+OBESE <- variables_in_bacteria$OBESE
+interaccion <-with(variables_in_bacteria,interaction(GROUP,OBESE))
+```
+
+## Clinical data.
+
+**NOTE we are going to include also on both levels of integration body measures**
+We exclude ISI because it is measured after the load of glucose, the mean values, to exclude redundancy of the data, ant the postprandial levels. 
+
+```{r}
+Clin.tmp <- variables_in_bacteria[,-c(1,2,3,4,5)] # get rid off orden, paciente, sex, group and obese
+auc_clin <- colnames(Clin.tmp)[grep("AUC",colnames(Clin.tmp))]
+mean_basal_clin<-colnames(Clin.tmp)[grep("mean",colnames(Clin.tmp))]
+isi <- colnames(Clin.tmp)[grep("ISI",colnames(Clin.tmp))]
+variables_clin <- colnames(Clin.tmp)
+w<-c(which(variables_clin %in% auc_clin),which(variables_clin %in% mean_basal_clin),which(variables_clin %in% isi))
+Clin <- Clin.tmp[,-w]
+rownames(Clin) <- sujetos
+```
+
+
+## IP data
+
+```{r}
+IP.tmp <- IP[IP$Paciente %in% variables_in_bacteria$Paciente,]
+redundant_variables <- c("Orden","Paciente","SEX","GROUP","OBESE","BMI")
+variables_ip <- colnames(IP.tmp)
+auc_ip <- variables_ip[grep("AUC",variables_ip)]
+mean_ip <- variables_ip[grep("mean",variables_ip)]
+w <- c(which(variables_ip %in% redundant_variables),which(variables_ip %in% auc_ip),which(variables_ip %in% mean_ip))
+IP.basal <- IP.tmp[,-w]
+rownames(IP.basal) <- sujetos
+
+```
+
+## Metabolome data.
+
+```{r}
+metabolome.basal.tmp <- metabolome[metabolome$Order %in% variables_in_bacteria$Orden,]
+redundant_data_meta <- c("Order","Sample","GROUP","OBESE")
+variables_meta <- colnames(metabolome.basal.tmp)
+mean_meta <- variables_meta[grep("mean",variables_meta)]
+auc_meta <- variables_meta[grep("AU[CG]",variables_meta)]
+w <- c(which(variables_meta %in% redundant_data_meta),which(variables_meta %in% mean_meta),which(variables_meta %in% auc_meta))
+metabolome.basal <- metabolome.basal.tmp[,-w]
+rownames(metabolome.basal) <- sujetos
+```
+
+## Microbiome data.
+
+### Phylum.
+
+```{r}
+phylum.abs.tmp <- phylum.abs
+redundant_data_ph <- c("GROUP","SEX","OBESE")
+phylum.tmp <- phylum.abs.tmp[,-c(ncol(phylum.abs.tmp)-2,ncol(phylum.abs.tmp)-1,ncol(phylum.abs.tmp))]
+phylum <- phylum.tmp[,colSums(phylum.tmp)>0]
+rownames(phylum) <- sujetos
+## removal of unidentified phyla
+phylum<-phylum[,-grep("^ud",colnames(phylum))]
+
+
+```
+
+### Genus
+
+```{r}
+genera.abs.tmp <- genera.abs
+redundant_data_ph <- c("GROUP","SEX","OBESE")
+genus.tmp.tmp <- genera.abs.tmp[,-c(ncol(genera.abs.tmp)-2,ncol(genera.abs.tmp)-1,ncol(genera.abs.tmp))]
+genus <- genus.tmp.tmp[,colSums(genus.tmp.tmp)>0]
+rownames(genus) <- sujetos
+## removal of genus unidentified
+
+genus<-genus[,-grep("^ud-",colnames(genus))]
+```
+
+
+## Pretreatment of microbiome data.
+
+```{r}
+genus.offset<-genus+1
+phylum.offset<-phylum+1
+sum(which(genus.offset == 0))
+
+
+result.filter.genus <- low.count.removal(genus.offset, percent=0.001)
+result.filter.phylum<- low.count.removal(phylum.offset, percent=0.001)
+
+genus.filter <- result.filter.genus$data.filter
+phylum.filter <- result.filter.phylum$data.filter
+
+# length(result.filter$keep.otu) 
+lib.size.genus <- apply(genus.filter, 1, sum)
+lib.size.phylum <- apply(phylum.filter,1,sum)
+par(mfrow=c(1,2))
+barplot(lib.size.genus)
+barplot(lib.size.phylum)
+
+
+genus.clr <- logratio.transfo(as.matrix(genus.filter), logratio = 'CLR', offset = 0) 
+genus.rel <- relative.fn(genus)
+```
+
+# ENTER TRANSFORMATION
+```{r}
+genus<-genus.clr
+
+phylum.clr <- logratio.transfo(as.matrix(phylum.filter), logratio = 'CLR', offset = 0) 
+phylum.rel <- relative.fn(phylum)
+
+phylum<-phylum.clr
+
+```
+# METABOLOME-MICROBIOME
+## PLS2
+
+### Genus
+```{r}
+datos <- list(metabolome = metabolome.basal,
+              microbiome = genus)
+pls_obj <- plsr(as.matrix(datos$metabolome)~as.matrix(datos$microbiome),
+                val.type="CV",center=T,scale=T,explvar=T)
+
+rho <- diag(cor(pls_obj$scores[,1:2],pls_obj$Yscores[,1:2]))
+```
+
+
+```{r}
+Group <- variables_in_bacteria$GROUP
+Group2 <- variables_in_bacteria$OBESE
+X<-pls_obj$scores
+colnames(X)<-paste0("met",paste0("comp",1:length(colnames(X))))
+Y<-pls_obj$Yscores
+colnames(Y)<-paste0("micro",paste0("comp",1:length(colnames(Y))))
+datos <- data.frame(cbind(X,Y))
+str(datos)
+p1 <- ggplot(datos,aes(metcomp1,metcomp2))+theme_article() +
+     geom_hline(yintercept = 0, color = "gray70") +
+     geom_vline(xintercept = 0, color = "gray70") +
+     geom_point(aes(color = Group,shape=Group2), alpha = 0.55, size = 3) +
+     coord_cartesian(xlim = c(min(datos[,1]),max(datos[,1]))) +
+     scale_fill_discrete(name = "Group")
+
+
+      grafico1<- p1 + 
+     labs(x = c(paste("PC1 Metabolome ")),
+          y=c(paste("PC2 Metabolome "))) +
+     theme(plot.title = element_text(hjust = 0.5),legend.position = "none") +
+     scale_color_manual(values=1:3)
+      
+p2 <- ggplot(datos,aes(microcomp1,microcomp2))+theme_article() +
+     geom_hline(yintercept = 0, color = "gray70") +
+     geom_vline(xintercept = 0, color = "gray70") +
+     geom_point(aes(color = Group,shape=Group2), alpha = 0.55, size = 3) +
+     coord_cartesian(xlim = c(min(datos[,2]),max(datos[,2]))) +
+     scale_fill_discrete(name = "Group")
+
+
+      grafico2<- p2 + 
+     labs(x = c(paste("PC1 Microbiome ")),
+          y=c(paste("PC2 Microbiome "))) +
+     theme(plot.title = element_text(hjust = 0.5),legend.position = "none") +
+     scale_color_manual(values=1:3)
+      
+p3 <- ggplot(datos,aes(metcomp1,microcomp1))+theme_article() +
+     geom_hline(yintercept = 0, color = "gray70") +
+     geom_vline(xintercept = 0, color = "gray70") +
+     geom_point(aes(color = Group,shape=Group2), alpha = 0.55, size = 3) +
+     coord_cartesian(xlim = c(min(datos[,1]),max(datos[,1]))) +
+     scale_fill_discrete(name = "Group")
+
+
+      grafico3<- p3 +  labs(x = c(paste("PC1 Metabolome ")),
+          y=c(paste("PC1 Microbiome "))) +
+     theme(plot.title = element_text(hjust = 0.5),legend.position = "none") +
+     scale_color_manual(values=1:3)
+      
+
+p4 <- ggplot(datos,aes(metcomp1,microcomp2))+theme_article() +
+     geom_hline(yintercept = 0, color = "gray70") +
+     geom_vline(xintercept = 0, color = "gray70") +
+     geom_point(aes(color = Group,shape=Group2), alpha = 0.55, size = 3) +
+     coord_cartesian(xlim = c(min(datos[,1]),max(datos[,1]))) +
+     scale_fill_discrete(name = "Group")
+
+
+      grafico4<- p4 +
+     labs(x = c(paste("PC1 Metabolome")),
+          y=c(paste("PC2 Microbiome"))) + 
+     theme(plot.title = element_text(hjust = 0.5),legend.position = "none") +
+     scale_color_manual(values=1:3)     
+      
+pls2.plot <-ggarrange(grafico1,grafico2,grafico3,grafico4,common.legend = T,nrow=2,ncol=2,legend="bottom")
+
+annotate_figure(pls2.plot, top = text_grob("Metabolome-Microbiome (genus) Integration: PLS2", 
+               color = "black", face = "bold", size = 14))
+```
+### Phylum
+
+```{r}
+datos <- list(metabolome = metabolome.basal,
+              microbiome = phylum)
+pls_obj <- plsr(as.matrix(datos$metabolome)~as.matrix(datos$microbiome),
+                val.type="CV",center=T,scale=T,explvar=T)
+
+rho <- diag(cor(pls_obj$scores[,1:2],pls_obj$Yscores[,1:2]))
+```
+
+
+```{r}
+Group <- variables_in_bacteria$GROUP
+Group2 <- variables_in_bacteria$OBESE
+X<-pls_obj$scores
+colnames(X)<-paste0("met",paste0("comp",1:length(colnames(X))))
+Y<-pls_obj$Yscores
+colnames(Y)<-paste0("micro",paste0("comp",1:length(colnames(Y))))
+datos <- data.frame(cbind(X,Y))
+str(datos)
+p1 <- ggplot(datos,aes(metcomp1,metcomp2))+theme_article() +
+     geom_hline(yintercept = 0, color = "gray70") +
+     geom_vline(xintercept = 0, color = "gray70") +
+     geom_point(aes(color = Group,shape=Group2), alpha = 0.55, size = 3) +
+     coord_cartesian(xlim = c(min(datos[,1]),max(datos[,1]))) +
+     scale_fill_discrete(name = "Group")
+
+
+      grafico1<- p1 + 
+     labs(x = c(paste("PC1 Metabolome ")),
+          y=c(paste("PC2 Metabolome "))) +
+     theme(plot.title = element_text(hjust = 0.5),legend.position = "none") +
+     scale_color_manual(values=1:3)
+      
+p2 <- ggplot(datos,aes(microcomp1,microcomp2))+theme_article() +
+     geom_hline(yintercept = 0, color = "gray70") +
+     geom_vline(xintercept = 0, color = "gray70") +
+     geom_point(aes(color = Group,shape=Group2), alpha = 0.55, size = 3) +
+     coord_cartesian(xlim = c(min(datos[,2]),max(datos[,2]))) +
+     scale_fill_discrete(name = "Group")
+
+
+      grafico2<- p2 + 
+     labs(x = c(paste("PC1 Microbiome ")),
+          y=c(paste("PC2 Microbiome "))) +
+     theme(plot.title = element_text(hjust = 0.5),legend.position = "none") +
+     scale_color_manual(values=1:3)
+      
+p3 <- ggplot(datos,aes(metcomp1,microcomp1))+theme_article() +
+     geom_hline(yintercept = 0, color = "gray70") +
+     geom_vline(xintercept = 0, color = "gray70") +
+     geom_point(aes(color = Group,shape=Group2), alpha = 0.55, size = 3) +
+     coord_cartesian(xlim = c(min(datos[,1]),max(datos[,1]))) +
+     scale_fill_discrete(name = "Group")
+
+
+      grafico3<- p3 +  labs(x = c(paste("PC1 Metabolome ")),
+          y=c(paste("PC1 Microbiome "))) +
+     theme(plot.title = element_text(hjust = 0.5),legend.position = "none") +
+     scale_color_manual(values=1:3)
+      
+
+p4 <- ggplot(datos,aes(metcomp1,microcomp2))+theme_article() +
+     geom_hline(yintercept = 0, color = "gray70") +
+     geom_vline(xintercept = 0, color = "gray70") +
+     geom_point(aes(color = Group,shape=Group2), alpha = 0.55, size = 3) +
+     coord_cartesian(xlim = c(min(datos[,1]),max(datos[,1]))) +
+     scale_fill_discrete(name = "Group")
+
+
+      grafico4<- p4 +
+     labs(x = c(paste("PC1 Metabolome")),
+          y=c(paste("PC2 Microbiome"))) + 
+     theme(plot.title = element_text(hjust = 0.5),legend.position = "none") +
+     scale_color_manual(values=1:3)     
+      
+pls2.plot <-ggarrange(grafico1,grafico2,grafico3,grafico4,common.legend = T,nrow=2,ncol=2,legend="bottom")
+
+annotate_figure(pls2.plot, top = text_grob("Metabolome-Microbiome (phylum) Integration: PLS2", 
+               color = "black", face = "bold", size = 14))
+```
+
+
+
+## O2PLS
+
+### Genus
+
+```{r}
+
+
+  datos <- list(metabolome = metabolome.basal,
+              microbiome = genus)
+  X<-scale(datos$metabolome)
+  Y<-scale(datos$microbiome)
+  n<-1
+  while(n<2){
+  res_cv <- crossval_o2m_adjR2(X, Y, 1:4, 0:4, 0:4, nr_folds = 3)
+  res_cv_min_mse <- res_cv[which.min(res_cv[,1]),]
+  n<-as.numeric(res_cv_min_mse[2])}
+  
+  
+  nx <- as.numeric(res_cv_min_mse[3])
+  ny <- as.numeric(res_cv_min_mse[4])
+  
+  res <- o2m2(X =X,Y = Y,n = n,nx = nx,ny = ny)
+  
+  
+  
+```
+
+```{r}
+Group <- variables_in_bacteria$GROUP
+Group2 <- variables_in_bacteria$OBESE
+Tt<-data.frame(res$Tt)
+colnames(Tt)<-paste0("jointX_",paste0("comp",1:length(colnames(Tt))))
+U<-data.frame(res$U)
+colnames(U)<-paste0("jointY_",paste0("comp",1:length(colnames(U))))
+T_Y<-data.frame(res$T_Yosc)
+colnames(T_Y)<-paste0("OrthX_"
+                      ,paste0("comp",1:length(colnames(T_Y))))
+U_X <- data.frame(res$U_Xosc)
+colnames(U_X)<-paste0("OrthY_",
+                      paste0("comp",1:length(colnames(U_X))))
+
+
+## Firstly let's compute the joint variantes.
+
+p1<- ggplot(Tt,aes(jointX_comp1,jointX_comp2))+theme_article() +
+     geom_hline(yintercept = 0, color = "gray70") +
+     geom_vline(xintercept = 0, color = "gray70") +
+     geom_point(aes(color = Group,shape=Group2), alpha = 0.55, size = 3) +
+     coord_cartesian(xlim = c(min(Tt[,1]),max(Tt[,1]))) +
+     scale_fill_discrete(name = "Group")
+
+
+      grafico1<- p1 + 
+     labs(x = c(paste("Joint comp 1",round(100*res$R2Xcorr,2),"%")),
+          y="Joint comp 2") +  
+     ggtitle(paste("Metabolome",sep=" "))+ 
+     theme(plot.title = element_text(hjust = 0.5,size=10),legend.position = "none",axis.title=element_text(size=9)
+           ) +
+     scale_color_manual(values=1:3)
+
+p2<- ggplot(U,aes(jointY_comp1,jointY_comp2))+theme_article() +
+     geom_hline(yintercept = 0, color = "gray70") +
+     geom_vline(xintercept = 0, color = "gray70") +
+     geom_point(aes(color = Group,shape=Group2), alpha = 0.55, size = 3) +
+     coord_cartesian(xlim = c(min(U[,1]),max(U[,1]))) +
+     scale_fill_discrete(name = "Group")
+
+
+      grafico2<- p2 + 
+     labs(x = c(paste("Joint comp 1",round(100*res$R2Ycorr,2),"%")),
+          y="Joint comp 2") +  
+     ggtitle(paste("Microbiome",sep=" "))+ 
+     theme(plot.title = element_text(hjust = 0.5,size=10),legend.position = "none"
+           ,axis.title=element_text(size=9)) +
+     scale_color_manual(values=1:3)
+
+## Now let-s compute joint between
+      
+datos <- data.frame(cbind(Tt,U))
+p3<- ggplot(datos,aes(jointX_comp1,jointY_comp2))+theme_article() +
+     geom_hline(yintercept = 0, color = "gray70") +
+     geom_vline(xintercept = 0, color = "gray70") +
+     geom_point(aes(color = Group,shape=Group2), alpha = 0.55, size = 3) +
+     coord_cartesian(xlim = c(min(datos[,1]),max(datos[,1]))) +
+     scale_fill_discrete(name = "Group")
+
+
+      grafico3<- p3 + 
+     labs(x = c(paste("Joint comp 1 Metabolome",round(100*res$R2Xcorr,2),"%")),
+          y=c(paste("Joint comp 2 Micrbiome",round(100*res$R2Ycorr,2),"%"))) +  
+     ggtitle(paste("Microbiome-Metabolome",sep=" "))+ 
+     theme(plot.title = element_text(hjust = 0.5,size=10),legend.position = "none"
+           ,axis.title=element_text(size=9)) +
+     scale_color_manual(values=1:3)
+
+
+##let's compute thre joint and orthogonal between 
+      
+      
+datos <- data.frame(cbind(Tt,T_Y))
+p4<- ggplot(datos,aes(jointX_comp1,OrthX_comp1))+theme_article() +
+     geom_hline(yintercept = 0, color = "gray70") +
+     geom_vline(xintercept = 0, color = "gray70") +
+     geom_point(aes(color = Group,shape=Group2), alpha = 0.55, size = 3) +
+     coord_cartesian(xlim = c(min(datos[,1]),max(datos[,1]))) +
+     scale_fill_discrete(name = "Group")
+
+
+      grafico4<- p4 + 
+     labs(x = c(paste("Joint comp 1",round(100*res$R2Xcorr,2),"%")),
+        y=c(paste("Orthogonal comp 1",round(100*res$R2X_YO,2),"%"))) +  
+     ggtitle(paste("Metabolome",sep=" "))+ 
+     theme(plot.title = element_text(hjust = 0.5,size=10),legend.position = "none"
+           ,axis.title=element_text(size=9)) +
+     scale_color_manual(values=1:3)
+
+datos <- data.frame(cbind(U,U_X))
+p5<- ggplot(datos,aes(jointY_comp1,OrthY_comp1))+theme_article() +
+     geom_hline(yintercept = 0, color = "gray70") +
+     geom_vline(xintercept = 0, color = "gray70") +
+     geom_point(aes(color = Group,shape=Group2), alpha = 0.55, size = 3) +
+     coord_cartesian(xlim = c(min(datos[,1]),max(datos[,1]))) +
+     scale_fill_discrete(name = "Group")
+
+
+      grafico5<- p5 + 
+     labs(x = c(paste("Joint comp 1",round(100*res$R2Ycorr,2),"%")),
+          y=c(paste("Orthogonal comp 1",round(100*res$R2Y_XO,2),"%"))) +  
+     ggtitle(paste("Microbiome-Metabolome",sep=" "))+ 
+     theme(plot.title = element_text(hjust = 0.5,size=10),legend.position = "none"
+           ,axis.title=element_text(size=9)) +
+     scale_color_manual(values=1:3)
+
+## Now between orthogonal.
+      
+datos <- data.frame(cbind(T_Y,U_X))
+p6<- ggplot(datos,aes(OrthX_comp1,OrthY_comp1))+theme_article() +
+     geom_hline(yintercept = 0, color = "gray70") +
+     geom_vline(xintercept = 0, color = "gray70") +
+     geom_point(aes(color = Group,shape=Group2), alpha = 0.55, size = 3) +
+     coord_cartesian(xlim = c(min(datos[,1]),max(datos[,1]))) +
+     scale_fill_discrete(name = "Group")
+
+
+      grafico6<- p6 + 
+     labs(x = c(paste("Orthogonal Metabolome comp 1",round(100*res$R2X_YO,2),"%")),
+          y=c(paste("Orthogonal Microbiome comp 1",round(100*res$R2Y_XO,2),"%"))) +  
+     ggtitle(paste("Microbiome-Metabolome",sep=" "))+ 
+     theme(plot.title = element_text(hjust = 0.5,size=10),legend.position = "none",axis.title=element_text(size=9)) +
+     scale_color_manual(values=1:3)
+
+```
+
+```{r}
+o2pl2.plot <-ggarrange(grafico1,
+grafico2,
+grafico3,
+grafico4,
+grafico5,
+grafico6,common.legend = T,legend="bottom")
+
+annotate_figure(o2pl2.plot, top = text_grob("Metabolome-Microbiome (Genus) Integration: OPLS2", 
+               color = "black", face = "bold", size = 14))
+```
+
+
+
+### phylum
+
+```{r}
+
+
+  datos <- list(metabolome = metabolome.basal,
+              microbiome = phylum)
+  X<-scale(datos$metabolome)
+  Y<-scale(datos$microbiome)
+  n<-1
+  while(n<2){
+  res_cv <- crossval_o2m_adjR2(X, Y, 1:4, 0:4, 0:4, nr_folds = 3)
+  res_cv_min_mse <- res_cv[which.min(res_cv[,1]),]
+  n<-as.numeric(res_cv_min_mse[2])}
+  
+  
+  nx <- as.numeric(res_cv_min_mse[3])
+  ny <- as.numeric(res_cv_min_mse[4])
+  
+  res <- o2m2(X =X,Y = Y,n = n,nx = nx,ny = ny)
+  
+  
+  
+```
+
+```{r}
+Group <- variables_in_bacteria$GROUP
+Group2 <- variables_in_bacteria$OBESE
+Tt<-data.frame(res$Tt)
+colnames(Tt)<-paste0("jointX_",paste0("comp",1:length(colnames(Tt))))
+U<-data.frame(res$U)
+colnames(U)<-paste0("jointY_",paste0("comp",1:length(colnames(U))))
+T_Y<-data.frame(res$T_Yosc)
+colnames(T_Y)<-paste0("OrthX_"
+                      ,paste0("comp",1:length(colnames(T_Y))))
+U_X <- data.frame(res$U_Xosc)
+colnames(U_X)<-paste0("OrthY_",
+                      paste0("comp",1:length(colnames(U_X))))
+
+
+## Firstly let's compute the joint variantes.
+
+p1<- ggplot(Tt,aes(jointX_comp1,jointX_comp2))+theme_article() +
+     geom_hline(yintercept = 0, color = "gray70") +
+     geom_vline(xintercept = 0, color = "gray70") +
+     geom_point(aes(color = Group,shape=Group2), alpha = 0.55, size = 3) +
+     coord_cartesian(xlim = c(min(Tt[,1]),max(Tt[,1]))) +
+     scale_fill_discrete(name = "Group")
+
+
+      grafico1<- p1 + 
+     labs(x = c(paste("Joint comp 1",round(100*res$R2Xcorr,2),"%")),
+          y="Joint comp 2") +  
+     ggtitle(paste("Metabolome",sep=" "))+ 
+     theme(plot.title = element_text(hjust = 0.5,size=10),legend.position = "none",axis.title=element_text(size=9)
+           ) +
+     scale_color_manual(values=1:3)
+
+p2<- ggplot(U,aes(jointY_comp1,jointY_comp2))+theme_article() +
+     geom_hline(yintercept = 0, color = "gray70") +
+     geom_vline(xintercept = 0, color = "gray70") +
+     geom_point(aes(color = Group,shape=Group2), alpha = 0.55, size = 3) +
+     coord_cartesian(xlim = c(min(U[,1]),max(U[,1]))) +
+     scale_fill_discrete(name = "Group")
+
+
+      grafico2<- p2 + 
+     labs(x = c(paste("Joint comp 1",round(100*res$R2Ycorr,2),"%")),
+          y="Joint comp 2") +  
+     ggtitle(paste("Microbiome",sep=" "))+ 
+     theme(plot.title = element_text(hjust = 0.5,size=10),legend.position = "none"
+           ,axis.title=element_text(size=9)) +
+     scale_color_manual(values=1:3)
+
+## Now let-s compute joint between
+      
+datos <- data.frame(cbind(Tt,U))
+p3<- ggplot(datos,aes(jointX_comp1,jointY_comp2))+theme_article() +
+     geom_hline(yintercept = 0, color = "gray70") +
+     geom_vline(xintercept = 0, color = "gray70") +
+     geom_point(aes(color = Group,shape=Group2), alpha = 0.55, size = 3) +
+     coord_cartesian(xlim = c(min(datos[,1]),max(datos[,1]))) +
+     scale_fill_discrete(name = "Group")
+
+
+      grafico3<- p3 + 
+     labs(x = c(paste("Joint comp 1 Metabolome",round(100*res$R2Xcorr,2),"%")),
+          y=c(paste("Joint comp 2 Micrbiome",round(100*res$R2Ycorr,2),"%"))) +  
+     ggtitle(paste("Microbiome-Metabolome",sep=" "))+ 
+     theme(plot.title = element_text(hjust = 0.5,size=10),legend.position = "none"
+           ,axis.title=element_text(size=9)) +
+     scale_color_manual(values=1:3)
+
+
+##let's compute thre joint and orthogonal between 
+      
+      
+datos <- data.frame(cbind(Tt,T_Y))
+p4<- ggplot(datos,aes(jointX_comp1,OrthX_comp1))+theme_article() +
+     geom_hline(yintercept = 0, color = "gray70") +
+     geom_vline(xintercept = 0, color = "gray70") +
+     geom_point(aes(color = Group,shape=Group2), alpha = 0.55, size = 3) +
+     coord_cartesian(xlim = c(min(datos[,1]),max(datos[,1]))) +
+     scale_fill_discrete(name = "Group")
+
+
+      grafico4<- p4 + 
+     labs(x = c(paste("Joint comp 1",round(100*res$R2Xcorr,2),"%")),
+        y=c(paste("Orthogonal comp 1",round(100*res$R2X_YO,2),"%"))) +  
+     ggtitle(paste("Metabolome",sep=" "))+ 
+     theme(plot.title = element_text(hjust = 0.5,size=10),legend.position = "none"
+           ,axis.title=element_text(size=9)) +
+     scale_color_manual(values=1:3)
+
+datos <- data.frame(cbind(U,U_X))
+p5<- ggplot(datos,aes(jointY_comp1,OrthY_comp1))+theme_article() +
+     geom_hline(yintercept = 0, color = "gray70") +
+     geom_vline(xintercept = 0, color = "gray70") +
+     geom_point(aes(color = Group,shape=Group2), alpha = 0.55, size = 3) +
+     coord_cartesian(xlim = c(min(datos[,1]),max(datos[,1]))) +
+     scale_fill_discrete(name = "Group")
+
+
+      grafico5<- p5 + 
+     labs(x = c(paste("Joint comp 1",round(100*res$R2Ycorr,2),"%")),
+          y=c(paste("Orthogonal comp 1",round(100*res$R2Y_XO,2),"%"))) +  
+     ggtitle(paste("Microbiome-Metabolome",sep=" "))+ 
+     theme(plot.title = element_text(hjust = 0.5,size=10),legend.position = "none"
+           ,axis.title=element_text(size=9)) +
+     scale_color_manual(values=1:3)
+
+## Now between orthogonal.
+      
+datos <- data.frame(cbind(T_Y,U_X))
+p6<- ggplot(datos,aes(OrthX_comp1,OrthY_comp1))+theme_article() +
+     geom_hline(yintercept = 0, color = "gray70") +
+     geom_vline(xintercept = 0, color = "gray70") +
+     geom_point(aes(color = Group,shape=Group2), alpha = 0.55, size = 3) +
+     coord_cartesian(xlim = c(min(datos[,1]),max(datos[,1]))) +
+     scale_fill_discrete(name = "Group")
+
+
+      grafico6<- p6 + 
+     labs(x = c(paste("Orthogonal Metabolome comp 1",round(100*res$R2X_YO,2),"%")),
+          y=c(paste("Orthogonal Microbiome comp 1",round(100*res$R2Y_XO,2),"%"))) +  
+     ggtitle(paste("Microbiome-Metabolome",sep=" "))+ 
+     theme(plot.title = element_text(hjust = 0.5,size=10),legend.position = "none",axis.title=element_text(size=9)) +
+     scale_color_manual(values=1:3)
+
+```
+
+```{r}
+o2pl2.plot <-ggarrange(grafico1,
+grafico2,
+grafico3,
+grafico4,
+grafico5,
+grafico6,common.legend = T,legend="bottom")
+
+annotate_figure(o2pl2.plot, top = text_grob("Metabolome-Microbiome (phylum) Integration: OPLS2", 
+               color = "black", face = "bold", size = 14))
+```
+
+## DIABLO
+
+### Genus
+
+<!-- #### GROUP -->
+
+<!-- ```{r} -->
+<!-- datos <- list(metabolome = metabolome.basal, -->
+<!--               microbiome = genus) -->
+<!-- res1.pls.met_micro <- mixOmics::pls(datos$metabolome,datos$microbiome,ncomp=1) -->
+<!-- (rho<-cor(res1.pls.met_micro$variates$X,res1.pls.met_micro$variates$Y)) -->
+<!-- ``` -->
+
+
+<!-- Thus, the design should be -->
+
+<!-- ```{r} -->
+<!-- design = matrix(rho, ncol = length(datos), nrow = length(datos), -->
+<!--                 dimnames = list(names(datos), names(datos))) -->
+<!-- diag(design) = 0 -->
+<!-- design -->
+<!-- ``` -->
+
+
+<!-- We are going to keep all variables since we do not have the power. -->
+
+<!-- ```{r} -->
+
+<!-- diablo.integro<- block.splsda(datos,Y=GROUP, ncomp = 5, design = design) -->
+
+<!-- set.seed(123) # For reproducibility, remove for your analyses -->
+<!-- perf.diablo.integro = perf(diablo.integro, validation = 'Mfold', folds = 10, nrepeat = 5) -->
+
+<!-- #perf.diablo.tcga$error.rate  # Lists the different types of error rates -->
+
+<!-- # Plot of the error rates based on weighted vote -->
+<!-- plot(perf.diablo.integro) -->
+<!-- ``` -->
+
+
+
+<!-- ```{r} -->
+<!-- (ncomp <- perf.diablo.integro$choice.ncomp$WeightedVote["Overall.BER", "centroids.dist"]) -->
+<!-- sgccda.res_met_gen = block.splsda(X = datos, Y = GROUP, ncomp = ncomp, design = design) -->
+<!-- ``` -->
+
+
+<!-- ```{r} -->
+<!-- plotDiablo(sgccda.res_met_gen, ncomp = 1) -->
+<!-- plotDiablo(sgccda.res_met_gen, ncomp = 2) -->
+<!-- plotDiablo(sgccda.res_met_gen, ncomp = 3) -->
+
+<!-- ``` -->
+
+<!-- ```{r} -->
+<!-- plotIndiv(sgccda.res_met_gen, ind.names = FALSE, legend = TRUE, title = 'DIABLO') -->
+
+<!-- ``` -->
+
+<!-- SCORE PLOT -->
+
+<!-- ```{r} -->
+<!-- Group <- variables_in_bacteria$GROUP -->
+<!-- Group2 <- variables_in_bacteria$OBESE -->
+<!-- X<-sgccda.res_met_gen$variates$metabolome -->
+<!-- colnames(X)<-paste0("met",colnames(X)) -->
+<!-- Y<-sgccda.res_met_gen$variates$microbiome -->
+<!-- colnames(Y)<-paste0("micro",colnames(Y)) -->
+<!-- datos <- data.frame(cbind(X,Y)) -->
+<!-- str(datos) -->
+<!-- p1 <- ggplot(datos,aes(metcomp1,metcomp2))+theme_article() + -->
+<!--      geom_hline(yintercept = 0, color = "gray70") + -->
+<!--      geom_vline(xintercept = 0, color = "gray70") + -->
+<!--      geom_point(aes(color = Group,shape=Group2), alpha = 0.55, size = 3) + -->
+<!--      coord_cartesian(xlim = c(min(datos[,1]),max(datos[,1]))) + -->
+<!--      scale_fill_discrete(name = "Group") -->
+
+
+<!--       grafico1<- p1 + -->
+<!--      labs(x = c(paste("PC1 Met",round(100*sgccda.res_met_gen$prop_expl_var$metabolome[1],2),"%")), -->
+<!--           y=c(paste("PC2 Met",round(100*sgccda.res_met_gen$prop_expl_var$metabolome[2],2),"%"))) + -->
+<!--      ggtitle(paste("Metabolome",sep=" "))+ -->
+<!--      theme(plot.title = element_text(hjust = 0.5),legend.position = "none") + -->
+<!--      scale_color_manual(values=1:3) -->
+
+<!-- p2 <- ggplot(datos,aes(microcomp1,microcomp2))+theme_article() + -->
+<!--      geom_hline(yintercept = 0, color = "gray70") + -->
+<!--      geom_vline(xintercept = 0, color = "gray70") + -->
+<!--      geom_point(aes(color = Group,shape=Group2), alpha = 0.55, size = 3) + -->
+<!--      coord_cartesian(xlim = c(min(datos[,1]),max(datos[,1]))) + -->
+<!--      scale_fill_discrete(name = "Group") -->
+
+
+<!--       grafico2<- p2 + -->
+<!--      labs(x = c(paste("PC1 Micro",round(100*sgccda.res_met_gen$prop_expl_var$microbiome[1],2),"%")), -->
+<!--           y=c(paste("PC2 Micro",round(100*sgccda.res_met_gen$prop_expl_var$microbiome[2],2),"%"))) + -->
+<!--      ggtitle(paste("Microbiome",sep=" "))+ -->
+<!--      theme(plot.title = element_text(hjust = 0.5),legend.position = "none") + -->
+<!--      scale_color_manual(values=1:3) -->
+
+<!-- p3 <- ggplot(datos,aes(metcomp1,microcomp1))+theme_article() + -->
+<!--      geom_hline(yintercept = 0, color = "gray70") + -->
+<!--      geom_vline(xintercept = 0, color = "gray70") + -->
+<!--      geom_point(aes(color = Group,shape=Group2), alpha = 0.55, size = 3) + -->
+<!--      coord_cartesian(xlim = c(min(datos[,1]),max(datos[,1]))) + -->
+<!--      scale_fill_discrete(name = "Group") -->
+
+
+<!--       grafico3<- p3 +  labs(x = c(paste("PC1 Met",round(100*sgccda.res_met_gen$prop_expl_var$metabolome[1],2),"%")), -->
+<!--           y=c(paste("PC1 Micro", -->
+<!--                     round(100*sgccda.res_met_gen$prop_expl_var$microbiome[1],2),"%"))) + -->
+<!--      ggtitle(paste("Metabolome-Microbiome",sep=" "))+ -->
+<!--      theme(plot.title = element_text(hjust = 0.5),legend.position = "none") + -->
+<!--      scale_color_manual(values=1:3) -->
+
+
+<!-- p4 <- ggplot(datos,aes(metcomp1,microcomp2))+theme_article() + -->
+<!--      geom_hline(yintercept = 0, color = "gray70") + -->
+<!--      geom_vline(xintercept = 0, color = "gray70") + -->
+<!--      geom_point(aes(color = Group,shape=Group2), alpha = 0.55, size = 3) + -->
+<!--      coord_cartesian(xlim = c(min(datos[,1]),max(datos[,1]))) + -->
+<!--      scale_fill_discrete(name = "Group") -->
+
+
+<!--       grafico4<- p4 + -->
+<!--      labs(x = c(paste("PC1 Meta",round(100*sgccda.res_met_gen$prop_expl_var$metabolome[1],2),"%")), -->
+<!--           y=c(paste("PC2 Micro",round(100*sgccda.res_met_gen$prop_expl_var$microbiome[2],2),"%"))) + -->
+<!--      ggtitle(paste("Metabolome-Microbiome",sep=" "))+ -->
+<!--      theme(plot.title = element_text(hjust = 0.5),legend.position = "none") + -->
+<!--      scale_color_manual(values=1:3) -->
+
+<!-- p<-ggarrange(grafico1,grafico2,grafico3,grafico4,common.legend = T,nrow=2,ncol=2,legend="bottom") -->
+<!-- annotate_figure(p, top = text_grob("Metabolome-Microbiome (genus). Response Group Integration: DIABLO", -->
+<!--                color = "black", face = "bold", size = 14)) -->
+<!-- ``` -->
+
+<!-- #### OBESE -->
+
+
+
+
+<!-- ```{r} -->
+<!-- datos <- list(metabolome = metabolome.basal, -->
+<!--               microbiome = genus) -->
+<!-- res1.pls.met_micro <- mixOmics::pls(datos$metabolome,datos$microbiome,ncomp=1) -->
+<!-- (rho<-cor(res1.pls.met_micro$variates$X,res1.pls.met_micro$variates$Y)) -->
+<!-- design = matrix(rho, ncol = length(datos), nrow = length(datos), -->
+<!--                 dimnames = list(names(datos), names(datos))) -->
+<!-- diag(design) = 0 -->
+<!-- design -->
+<!-- ``` -->
+
+<!-- We are going to keep all variables since we do not have the power. -->
+
+<!-- ```{r} -->
+<!-- datos <- list(metabolome = metabolome.basal, -->
+<!--               microbiome = genus) -->
+<!-- diablo.integro.obese<- block.splsda(datos,Y=OBESE, ncomp = 5, design = design) -->
+
+<!-- set.seed(123) # For reproducibility, remove for your analyses -->
+<!-- perf.diablo.integro.obese = perf(diablo.integro.obese, validation = 'Mfold', folds = 10, nrepeat = 5) -->
+
+<!-- #perf.diablo.tcga$error.rate  # Lists the different types of error rates -->
+
+<!-- # Plot of the error rates based on weighted vote -->
+<!-- plot(perf.diablo.integro.obese) -->
+<!-- ``` -->
+
+
+
+<!-- ```{r} -->
+<!-- (ncomp.obese <- perf.diablo.integro.obese$choice.ncomp$WeightedVote["Overall.BER", "centroids.dist"]) -->
+<!-- sgccda.res_met_gen.obese = block.splsda(X = datos, Y = OBESE, ncomp = ncomp.obese, design = design) -->
+<!-- ``` -->
+
+
+<!-- ```{r} -->
+<!-- plotDiablo(sgccda.res_met_gen.obese, ncomp = 1) -->
+<!-- # plotDiablo(sgccda.res_met_gen.obese, ncomp = 2) -->
+<!-- # plotDiablo(sgccda.res_met_gen.obese, ncomp = 3) -->
+
+<!-- ``` -->
+
+<!-- ```{r} -->
+<!-- plotIndiv(sgccda.res_met_gen.obese, ind.names = FALSE, legend = TRUE, title = 'DIABLO') -->
+
+<!-- ``` -->
+
+<!-- SCORE PLOT -->
+
+<!-- ```{r} -->
+<!-- Group <- variables_in_bacteria$GROUP -->
+<!-- Group2 <- variables_in_bacteria$OBESE -->
+<!-- X<-sgccda.res_met_gen.obese$variates$metabolome -->
+<!-- colnames(X)<-paste0("met",colnames(X)) -->
+<!-- Y<-sgccda.res_met_gen.obese$variates$microbiome -->
+<!-- colnames(Y)<-paste0("micro",colnames(Y)) -->
+<!-- datos <- data.frame(cbind(X,Y)) -->
+<!-- str(datos) -->
+<!-- p1 <- ggplot(datos,aes(metcomp1,metcomp2))+theme_article() + -->
+<!--      geom_hline(yintercept = 0, color = "gray70") + -->
+<!--      geom_vline(xintercept = 0, color = "gray70") + -->
+<!--      geom_point(aes(color = Group,shape=Group2), alpha = 0.55, size = 3) + -->
+<!--      coord_cartesian(xlim = c(min(datos[,1]),max(datos[,1]))) + -->
+<!--      scale_fill_discrete(name = "Group") -->
+
+
+<!--       grafico1<- p1 + -->
+<!--      labs(x = c(paste("PC1 Met",round(100*sgccda.res_met_gen.obese$prop_expl_var$metabolome[1],2),"%")), -->
+<!--           y=c(paste("PC2 Met",round(100*sgccda.res_met_gen.obese$prop_expl_var$metabolome[2],2),"%"))) + -->
+<!--      ggtitle(paste("Metabolome",sep=" "))+ -->
+<!--      theme(plot.title = element_text(hjust = 0.5),legend.position = "none") + -->
+<!--      scale_color_manual(values=1:3) -->
+
+<!-- p2 <- ggplot(datos,aes(microcomp1,microcomp2))+theme_article() + -->
+<!--      geom_hline(yintercept = 0, color = "gray70") + -->
+<!--      geom_vline(xintercept = 0, color = "gray70") + -->
+<!--      geom_point(aes(color = Group,shape=Group2), alpha = 0.55, size = 3) + -->
+<!--      coord_cartesian(xlim = c(min(datos[,1]),max(datos[,1]))) + -->
+<!--      scale_fill_discrete(name = "Group") -->
+
+
+<!--       grafico2<- p2 + -->
+<!--      labs(x = c(paste("PC1 Micro",round(100*sgccda.res_met_gen.obese$prop_expl_var$microbiome[1],2),"%")), -->
+<!--           y=c(paste("PC2 Micro",round(100*sgccda.res_met_gen.obese$prop_expl_var$microbiome[2],2),"%"))) + -->
+<!--      ggtitle(paste("Microbiome",sep=" "))+ -->
+<!--      theme(plot.title = element_text(hjust = 0.5),legend.position = "none") + -->
+<!--      scale_color_manual(values=1:3) -->
+
+<!-- p3 <- ggplot(datos,aes(metcomp1,microcomp1))+theme_article() + -->
+<!--      geom_hline(yintercept = 0, color = "gray70") + -->
+<!--      geom_vline(xintercept = 0, color = "gray70") + -->
+<!--      geom_point(aes(color = Group,shape=Group2), alpha = 0.55, size = 3) + -->
+<!--      coord_cartesian(xlim = c(min(datos[,1]),max(datos[,1]))) + -->
+<!--      scale_fill_discrete(name = "Group") -->
+
+
+<!--       grafico3<- p3 +  labs(x = c(paste("PC1 Met",round(100*sgccda.res_met_gen.obese$prop_expl_var$metabolome[1],2),"%")), -->
+<!--           y=c(paste("PC1 Micro", -->
+<!--                     round(100*sgccda.res_met_gen.obese$prop_expl_var$microbiome[1],2),"%"))) + -->
+<!--      ggtitle(paste("Metabolome-Microbiome",sep=" "))+ -->
+<!--      theme(plot.title = element_text(hjust = 0.5),legend.position = "none") + -->
+<!--      scale_color_manual(values=1:3) -->
+
+
+<!-- p4 <- ggplot(datos,aes(metcomp1,microcomp2))+theme_article() + -->
+<!--      geom_hline(yintercept = 0, color = "gray70") + -->
+<!--      geom_vline(xintercept = 0, color = "gray70") + -->
+<!--      geom_point(aes(color = Group,shape=Group2), alpha = 0.55, size = 3) + -->
+<!--      coord_cartesian(xlim = c(min(datos[,1]),max(datos[,1]))) + -->
+<!--      scale_fill_discrete(name = "Group") -->
+
+
+<!--       grafico4<- p4 + -->
+<!--      labs(x = c(paste("PC1 Meta",round(100*sgccda.res_met_gen.obese$prop_expl_var$metabolome[1],2),"%")), -->
+<!--           y=c(paste("PC2 Micro",round(100*sgccda.res_met_gen.obese$prop_expl_var$microbiome[2],2),"%"))) + -->
+<!--      ggtitle(paste("Metabolome-Microbiome",sep=" "))+ -->
+<!--      theme(plot.title = element_text(hjust = 0.5),legend.position = "none") + -->
+<!--      scale_color_manual(values=1:3) -->
+
+<!-- p<-ggarrange(grafico1,grafico2,grafico3,grafico4,common.legend = T,nrow=2,ncol=2,legend="bottom") -->
+<!-- annotate_figure(p, top = text_grob("Metabolome-Microbiome (genus). Response Obese Integration: DIABLO", -->
+<!--                color = "black", face = "bold", size = 14)) -->
+<!-- ``` -->
+
+#### interaccion
+
+
+```{r}
+datos <- list(metabolome = metabolome.basal,
+              microbiome = genus)
+res1.pls.met_micro <- mixOmics::pls(datos$metabolome,datos$microbiome,ncomp=1)
+(rho<-cor(res1.pls.met_micro$variates$X,res1.pls.met_micro$variates$Y))
+design = matrix(rho, ncol = length(datos), nrow = length(datos),
+                dimnames = list(names(datos), names(datos)))
+diag(design) = 0
+design
+```
+
+
+We are going to keep all variables since we do not have the power.
+
+```{r}
+datos <- list(metabolome = metabolome.basal,
+              microbiome = genus)
+diablo.integro.interaccion<- block.splsda(datos,Y=interaccion, ncomp = 5, design = design)
+
+set.seed(123) # For reproducibility, remove for your analyses
+perf.diablo.integro.interaccion = perf(diablo.integro.interaccion, validation = 'Mfold', folds = 10, nrepeat = 5)
+
+#perf.diablo.tcga$error.rate  # Lists the different types of error rates
+
+# Plot of the error rates based on weighted vote
+plot(perf.diablo.integro.interaccion)
+```
+
+
+
+```{r}
+(ncomp.interaccion <- perf.diablo.integro.interaccion$choice.ncomp$WeightedVote["Overall.BER", "centroids.dist"])
+sgccda.res_met_gen.interaccion = block.splsda(X = datos, Y = interaccion, ncomp = ncomp.interaccion, design = design)
+```
+
+
+```{r}
+plotDiablo(sgccda.res_met_gen.interaccion, ncomp = 1)
+# plotDiablo(sgccda.res_met_gen.interaccion, ncomp = 2)
+# plotDiablo(sgccda.res_met_gen.interaccion, ncomp = 3)
+
+```
+
+```{r}
+plotIndiv(sgccda.res_met_gen.interaccion, ind.names = FALSE, legend = TRUE, title = 'DIABLO')
+
+```
+
+SCORE PLOT
+
+```{r}
+Group <- variables_in_bacteria$GROUP
+Group2 <- variables_in_bacteria$OBESE
+X<-sgccda.res_met_gen.interaccion$variates$metabolome
+colnames(X)<-paste0("met",colnames(X))
+Y<-sgccda.res_met_gen.interaccion$variates$microbiome
+colnames(Y)<-paste0("micro",colnames(Y))
+datos <- data.frame(cbind(X,Y))
+str(datos)
+p1 <- ggplot(datos,aes(metcomp1,metcomp2))+theme_article() +
+     geom_hline(yintercept = 0, color = "gray70") +
+     geom_vline(xintercept = 0, color = "gray70") +
+     geom_point(aes(color = Group,shape=Group2), alpha = 0.55, size = 3) +
+     coord_cartesian(xlim = c(min(datos[,1]),max(datos[,1]))) +
+     scale_fill_discrete(name = "Group")
+
+
+      grafico1<- p1 +
+     labs(x = c(paste("PC1 Met",round(100*sgccda.res_met_gen.interaccion$prop_expl_var$metabolome[1],2),"%")),
+          y=c(paste("PC2 Met",round(100*sgccda.res_met_gen.interaccion$prop_expl_var$metabolome[2],2),"%"))) +
+     ggtitle(paste("Metabolome",sep=" "))+
+     theme(plot.title = element_text(hjust = 0.5),legend.position = "none") +
+     scale_color_manual(values=1:3)
+
+p2 <- ggplot(datos,aes(microcomp1,microcomp2))+theme_article() +
+     geom_hline(yintercept = 0, color = "gray70") +
+     geom_vline(xintercept = 0, color = "gray70") +
+     geom_point(aes(color = Group,shape=Group2), alpha = 0.55, size = 3) +
+     coord_cartesian(xlim = c(min(datos[,1]),max(datos[,1]))) +
+     scale_fill_discrete(name = "Group")
+
+
+      grafico2<- p2 +
+     labs(x = c(paste("PC1 Micro",round(100*sgccda.res_met_gen.interaccion$prop_expl_var$microbiome[1],2),"%")),
+          y=c(paste("PC2 Micro",round(100*sgccda.res_met_gen.interaccion$prop_expl_var$microbiome[2],2),"%"))) +
+     ggtitle(paste("Microbiome",sep=" "))+
+     theme(plot.title = element_text(hjust = 0.5),legend.position = "none") +
+     scale_color_manual(values=1:3)
+
+p3 <- ggplot(datos,aes(metcomp1,microcomp1))+theme_article() +
+     geom_hline(yintercept = 0, color = "gray70") +
+     geom_vline(xintercept = 0, color = "gray70") +
+     geom_point(aes(color = Group,shape=Group2), alpha = 0.55, size = 3) +
+     coord_cartesian(xlim = c(min(datos[,1]),max(datos[,1]))) +
+     scale_fill_discrete(name = "Group")
+
+
+      grafico3<- p3 +  labs(x = c(paste("PC1 Met",round(100*sgccda.res_met_gen.interaccion$prop_expl_var$metabolome[1],2),"%")),
+          y=c(paste("PC1 Micro",
+                    round(100*sgccda.res_met_gen.interaccion$prop_expl_var$microbiome[1],2),"%"))) +
+     ggtitle(paste("Metabolome-Microbiome",sep=" "))+
+     theme(plot.title = element_text(hjust = 0.5),legend.position = "none") +
+     scale_color_manual(values=1:3)
+
+
+p4 <- ggplot(datos,aes(metcomp1,microcomp2))+theme_article() +
+     geom_hline(yintercept = 0, color = "gray70") +
+     geom_vline(xintercept = 0, color = "gray70") +
+     geom_point(aes(color = Group,shape=Group2), alpha = 0.55, size = 3) +
+     coord_cartesian(xlim = c(min(datos[,1]),max(datos[,1]))) +
+     scale_fill_discrete(name = "Group")
+
+
+      grafico4<- p4 +
+     labs(x = c(paste("PC1 Meta",round(100*sgccda.res_met_gen.interaccion$prop_expl_var$metabolome[1],2),"%")),
+          y=c(paste("PC2 Micro",round(100*sgccda.res_met_gen.interaccion$prop_expl_var$microbiome[2],2),"%"))) +
+     ggtitle(paste("Metabolome-Microbiome",sep=" "))+
+     theme(plot.title = element_text(hjust = 0.5),legend.position = "none") +
+     scale_color_manual(values=1:3)
+
+p<-ggarrange(grafico1,grafico2,grafico3,grafico4,common.legend = T,nrow=2,ncol=2,legend="bottom")
+annotate_figure(p, top = text_grob("Metabolome-Microbiome (genus). Response Interaction Integration: DIABLO",
+               color = "black", face = "bold", size = 14))
+```
+
+### Phylum
+
+#### GROUP
+
+```{r}
+datos <- list(metabolome = metabolome.basal,
+              microbiome = phylum)
+res1.pls.met_micro <- mixOmics::pls(datos$metabolome,datos$microbiome,ncomp=1)
+(rho<-cor(res1.pls.met_micro$variates$X,res1.pls.met_micro$variates$Y))
+```
+
+
+Thus, the design should be
+
+```{r}
+design = matrix(rho, ncol = length(datos), nrow = length(datos),
+                dimnames = list(names(datos), names(datos)))
+diag(design) = 0
+design
+```
+
+
+We are going to keep all variables since we do not have the power.
+
+```{r}
+
+diablo.integro<- block.splsda(datos,Y=GROUP, ncomp = 5, design = design)
+
+set.seed(123) # For reproducibility, remove for your analyses
+perf.diablo.integro = perf(diablo.integro, validation = 'Mfold', folds = 10, nrepeat = 5)
+
+#perf.diablo.tcga$error.rate  # Lists the different types of error rates
+
+# Plot of the error rates based on weighted vote
+plot(perf.diablo.integro)
+```
+
+
+
+```{r}
+(ncomp <- perf.diablo.integro$choice.ncomp$WeightedVote["Overall.BER", "centroids.dist"])
+sgccda.res_met_gen = block.splsda(X = datos, Y = GROUP, ncomp = ncomp, design = design)
+```
+
+
+```{r}
+plotDiablo(sgccda.res_met_gen, ncomp = 1)
+plotDiablo(sgccda.res_met_gen, ncomp = 2)
+plotDiablo(sgccda.res_met_gen, ncomp = 3)
+
+```
+
+```{r}
+plotIndiv(sgccda.res_met_gen, ind.names = FALSE, legend = TRUE, title = 'DIABLO')
+
+```
+
+SCORE PLOT
+
+```{r}
+Group <- variables_in_bacteria$GROUP
+Group2 <- variables_in_bacteria$OBESE
+X<-sgccda.res_met_gen$variates$metabolome
+colnames(X)<-paste0("met",colnames(X))
+Y<-sgccda.res_met_gen$variates$microbiome
+colnames(Y)<-paste0("micro",colnames(Y))
+datos <- data.frame(cbind(X,Y))
+str(datos)
+p1 <- ggplot(datos,aes(metcomp1,metcomp2))+theme_article() +
+     geom_hline(yintercept = 0, color = "gray70") +
+     geom_vline(xintercept = 0, color = "gray70") +
+     geom_point(aes(color = Group,shape=Group2), alpha = 0.55, size = 3) +
+     coord_cartesian(xlim = c(min(datos[,1]),max(datos[,1]))) +
+     scale_fill_discrete(name = "Group")
+
+
+      grafico1<- p1 + 
+     labs(x = c(paste("PC1 Met",round(100*sgccda.res_met_gen$prop_expl_var$metabolome[1],2),"%")),
+          y=c(paste("PC2 Met",round(100*sgccda.res_met_gen$prop_expl_var$metabolome[2],2),"%"))) +  
+     ggtitle(paste("Metabolome",sep=" "))+ 
+     theme(plot.title = element_text(hjust = 0.5),legend.position = "none") +
+     scale_color_manual(values=1:3)
+      
+p2 <- ggplot(datos,aes(microcomp1,microcomp2))+theme_article() +
+     geom_hline(yintercept = 0, color = "gray70") +
+     geom_vline(xintercept = 0, color = "gray70") +
+     geom_point(aes(color = Group,shape=Group2), alpha = 0.55, size = 3) +
+     coord_cartesian(xlim = c(min(datos[,1]),max(datos[,1]))) +
+     scale_fill_discrete(name = "Group")
+
+
+      grafico2<- p2 + 
+     labs(x = c(paste("PC1 Micro",round(100*sgccda.res_met_gen$prop_expl_var$microbiome[1],2),"%")),
+          y=c(paste("PC2 Micro",round(100*sgccda.res_met_gen$prop_expl_var$microbiome[2],2),"%"))) +  
+     ggtitle(paste("Microbiome",sep=" "))+ 
+     theme(plot.title = element_text(hjust = 0.5),legend.position = "none") +
+     scale_color_manual(values=1:3)
+      
+p3 <- ggplot(datos,aes(metcomp1,microcomp1))+theme_article() +
+     geom_hline(yintercept = 0, color = "gray70") +
+     geom_vline(xintercept = 0, color = "gray70") +
+     geom_point(aes(color = Group,shape=Group2), alpha = 0.55, size = 3) +
+     coord_cartesian(xlim = c(min(datos[,1]),max(datos[,1]))) +
+     scale_fill_discrete(name = "Group")
+
+
+      grafico3<- p3 +  labs(x = c(paste("PC1 Met",round(100*sgccda.res_met_gen$prop_expl_var$metabolome[1],2),"%")),
+          y=c(paste("PC1 Micro",
+                    round(100*sgccda.res_met_gen$prop_expl_var$microbiome[1],2),"%"))) +  
+     ggtitle(paste("Metabolome-Microbiome",sep=" "))+ 
+     theme(plot.title = element_text(hjust = 0.5),legend.position = "none") +
+     scale_color_manual(values=1:3)
+      
+
+p4 <- ggplot(datos,aes(metcomp1,microcomp2))+theme_article() +
+     geom_hline(yintercept = 0, color = "gray70") +
+     geom_vline(xintercept = 0, color = "gray70") +
+     geom_point(aes(color = Group,shape=Group2), alpha = 0.55, size = 3) +
+     coord_cartesian(xlim = c(min(datos[,1]),max(datos[,1]))) +
+     scale_fill_discrete(name = "Group")
+
+
+      grafico4<- p4 +
+     labs(x = c(paste("PC1 Meta",round(100*sgccda.res_met_gen$prop_expl_var$metabolome[1],2),"%")),
+          y=c(paste("PC2 Micro",round(100*sgccda.res_met_gen$prop_expl_var$microbiome[2],2),"%"))) +  
+     ggtitle(paste("Metabolome-Microbiome",sep=" "))+ 
+     theme(plot.title = element_text(hjust = 0.5),legend.position = "none") +
+     scale_color_manual(values=1:3)     
+      
+p<-ggarrange(grafico1,grafico2,grafico3,grafico4,common.legend = T,nrow=2,ncol=2,legend="bottom")
+annotate_figure(p, top = text_grob("Metabolome-Microbiome (phylum). Response Group Integration: DIABLO", 
+               color = "black", face = "bold", size = 14))
+```
+
+#### OBESE
+
+
+
+
+We are going to keep all variables since we do not have the power.
+
+```{r}
+datos <- list(metabolome = metabolome.basal,
+              microbiome = phylum)
+diablo.integro.obese<- block.splsda(datos,Y=OBESE, ncomp = 5, design = design)
+
+set.seed(123) # For reproducibility, remove for your analyses
+perf.diablo.integro.obese = perf(diablo.integro.obese, validation = 'Mfold', folds = 10, nrepeat = 5)
+
+#perf.diablo.tcga$error.rate  # Lists the different types of error rates
+
+# Plot of the error rates based on weighted vote
+plot(perf.diablo.integro.obese)
+```
+
+
+
+```{r}
+(ncomp.obese <- perf.diablo.integro.obese$choice.ncomp$WeightedVote["Overall.BER", "centroids.dist"])
+sgccda.res_met_gen.obese = block.splsda(X = datos, Y = OBESE, ncomp = ncomp.obese, design = design)
+```
+
+
+```{r}
+plotDiablo(sgccda.res_met_gen.obese, ncomp = 1)
+plotDiablo(sgccda.res_met_gen.obese, ncomp = 2)
+# plotDiablo(sgccda.res_met_gen.obese, ncomp = 3)
+
+```
+
+```{r}
+plotIndiv(sgccda.res_met_gen.obese, ind.names = FALSE, legend = TRUE, title = 'DIABLO')
+
+```
+
+SCORE PLOT
+
+```{r}
+Group <- variables_in_bacteria$GROUP
+Group2 <- variables_in_bacteria$OBESE
+X<-sgccda.res_met_gen.obese$variates$metabolome
+colnames(X)<-paste0("met",colnames(X))
+Y<-sgccda.res_met_gen.obese$variates$microbiome
+colnames(Y)<-paste0("micro",colnames(Y))
+datos <- data.frame(cbind(X,Y))
+str(datos)
+p1 <- ggplot(datos,aes(metcomp1,metcomp2))+theme_article() +
+     geom_hline(yintercept = 0, color = "gray70") +
+     geom_vline(xintercept = 0, color = "gray70") +
+     geom_point(aes(color = Group,shape=Group2), alpha = 0.55, size = 3) +
+     coord_cartesian(xlim = c(min(datos[,1]),max(datos[,1]))) +
+     scale_fill_discrete(name = "Group")
+
+
+      grafico1<- p1 + 
+     labs(x = c(paste("PC1 Met",round(100*sgccda.res_met_gen.obese$prop_expl_var$metabolome[1],2),"%")),
+          y=c(paste("PC2 Met",round(100*sgccda.res_met_gen.obese$prop_expl_var$metabolome[2],2),"%"))) +  
+     ggtitle(paste("Metabolome",sep=" "))+ 
+     theme(plot.title = element_text(hjust = 0.5),legend.position = "none") +
+     scale_color_manual(values=1:3)
+      
+p2 <- ggplot(datos,aes(microcomp1,microcomp2))+theme_article() +
+     geom_hline(yintercept = 0, color = "gray70") +
+     geom_vline(xintercept = 0, color = "gray70") +
+     geom_point(aes(color = Group,shape=Group2), alpha = 0.55, size = 3) +
+     coord_cartesian(xlim = c(min(datos[,1]),max(datos[,1]))) +
+     scale_fill_discrete(name = "Group")
+
+
+      grafico2<- p2 + 
+     labs(x = c(paste("PC1 Micro",round(100*sgccda.res_met_gen.obese$prop_expl_var$microbiome[1],2),"%")),
+          y=c(paste("PC2 Micro",round(100*sgccda.res_met_gen.obese$prop_expl_var$microbiome[2],2),"%"))) +  
+     ggtitle(paste("Microbiome",sep=" "))+ 
+     theme(plot.title = element_text(hjust = 0.5),legend.position = "none") +
+     scale_color_manual(values=1:3)
+      
+p3 <- ggplot(datos,aes(metcomp1,microcomp1))+theme_article() +
+     geom_hline(yintercept = 0, color = "gray70") +
+     geom_vline(xintercept = 0, color = "gray70") +
+     geom_point(aes(color = Group,shape=Group2), alpha = 0.55, size = 3) +
+     coord_cartesian(xlim = c(min(datos[,1]),max(datos[,1]))) +
+     scale_fill_discrete(name = "Group")
+
+
+      grafico3<- p3 +  labs(x = c(paste("PC1 Met",round(100*sgccda.res_met_gen.obese$prop_expl_var$metabolome[1],2),"%")),
+          y=c(paste("PC1 Micro",
+                    round(100*sgccda.res_met_gen.obese$prop_expl_var$microbiome[1],2),"%"))) +  
+     ggtitle(paste("Metabolome-Microbiome",sep=" "))+ 
+     theme(plot.title = element_text(hjust = 0.5),legend.position = "none") +
+     scale_color_manual(values=1:3)
+      
+
+p4 <- ggplot(datos,aes(metcomp1,microcomp2))+theme_article() +
+     geom_hline(yintercept = 0, color = "gray70") +
+     geom_vline(xintercept = 0, color = "gray70") +
+     geom_point(aes(color = Group,shape=Group2), alpha = 0.55, size = 3) +
+     coord_cartesian(xlim = c(min(datos[,1]),max(datos[,1]))) +
+     scale_fill_discrete(name = "Group")
+
+
+      grafico4<- p4 +
+     labs(x = c(paste("PC1 Meta",round(100*sgccda.res_met_gen.obese$prop_expl_var$metabolome[1],2),"%")),
+          y=c(paste("PC2 Micro",round(100*sgccda.res_met_gen.obese$prop_expl_var$microbiome[2],2),"%"))) +  
+     ggtitle(paste("Metabolome-Microbiome",sep=" "))+ 
+     theme(plot.title = element_text(hjust = 0.5),legend.position = "none") +
+     scale_color_manual(values=1:3)     
+      
+p<-ggarrange(grafico1,grafico2,grafico3,grafico4,common.legend = T,nrow=2,ncol=2,legend="bottom")
+annotate_figure(p, top = text_grob("Metabolome-Microbiome (phylum). Response Obese Integration: DIABLO", 
+               color = "black", face = "bold", size = 14))
+```
+
+#### interaccion
+
+
+
+
+We are going to keep all variables since we do not have the power.
+
+```{r}
+datos <- list(metabolome = metabolome.basal,
+              microbiome = phylum)
+diablo.integro.interaccion<- block.splsda(datos,Y=interaccion, ncomp = 5, design = design)
+
+set.seed(123) # For reproducibility, remove for your analyses
+perf.diablo.integro.interaccion = perf(diablo.integro.interaccion, validation = 'Mfold', folds = 10, nrepeat = 5)
+
+#perf.diablo.tcga$error.rate  # Lists the different types of error rates
+
+# Plot of the error rates based on weighted vote
+plot(perf.diablo.integro.interaccion)
+```
+
+
+
+```{r}
+(ncomp.interaccion <- perf.diablo.integro.interaccion$choice.ncomp$WeightedVote["Overall.BER", "centroids.dist"])
+sgccda.res_met_gen.interaccion = block.splsda(X = datos, Y = interaccion, ncomp = ncomp.interaccion, design = design)
+```
+
+
+```{r}
+plotDiablo(sgccda.res_met_gen.interaccion, ncomp = 1)
+plotDiablo(sgccda.res_met_gen.interaccion, ncomp = 2)
+# plotDiablo(sgccda.res_met_gen.interaccion, ncomp = 3)
+
+```
+
+```{r}
+plotIndiv(sgccda.res_met_gen.interaccion, ind.names = FALSE, legend = TRUE, title = 'DIABLO')
+
+```
+
+SCORE PLOT
+
+```{r}
+Group <- variables_in_bacteria$GROUP
+Group2 <- variables_in_bacteria$OBESE
+X<-sgccda.res_met_gen.interaccion$variates$metabolome
+colnames(X)<-paste0("met",colnames(X))
+Y<-sgccda.res_met_gen.interaccion$variates$microbiome
+colnames(Y)<-paste0("micro",colnames(Y))
+datos <- data.frame(cbind(X,Y))
+str(datos)
+p1 <- ggplot(datos,aes(metcomp1,metcomp2))+theme_article() +
+     geom_hline(yintercept = 0, color = "gray70") +
+     geom_vline(xintercept = 0, color = "gray70") +
+     geom_point(aes(color = Group,shape=Group2), alpha = 0.55, size = 3) +
+     coord_cartesian(xlim = c(min(datos[,1]),max(datos[,1]))) +
+     scale_fill_discrete(name = "Group")
+
+
+      grafico1<- p1 + 
+     labs(x = c(paste("PC1 Met",round(100*sgccda.res_met_gen.interaccion$prop_expl_var$metabolome[1],2),"%")),
+          y=c(paste("PC2 Met",round(100*sgccda.res_met_gen.interaccion$prop_expl_var$metabolome[2],2),"%"))) +  
+     ggtitle(paste("Metabolome",sep=" "))+ 
+     theme(plot.title = element_text(hjust = 0.5),legend.position = "none") +
+     scale_color_manual(values=1:3)
+      
+p2 <- ggplot(datos,aes(microcomp1,microcomp2))+theme_article() +
+     geom_hline(yintercept = 0, color = "gray70") +
+     geom_vline(xintercept = 0, color = "gray70") +
+     geom_point(aes(color = Group,shape=Group2), alpha = 0.55, size = 3) +
+     coord_cartesian(xlim = c(min(datos[,1]),max(datos[,1]))) +
+     scale_fill_discrete(name = "Group")
+
+
+      grafico2<- p2 + 
+     labs(x = c(paste("PC1 Micro",round(100*sgccda.res_met_gen.interaccion$prop_expl_var$microbiome[1],2),"%")),
+          y=c(paste("PC2 Micro",round(100*sgccda.res_met_gen.interaccion$prop_expl_var$microbiome[2],2),"%"))) +  
+     ggtitle(paste("Microbiome",sep=" "))+ 
+     theme(plot.title = element_text(hjust = 0.5),legend.position = "none") +
+     scale_color_manual(values=1:3)
+      
+p3 <- ggplot(datos,aes(metcomp1,microcomp1))+theme_article() +
+     geom_hline(yintercept = 0, color = "gray70") +
+     geom_vline(xintercept = 0, color = "gray70") +
+     geom_point(aes(color = Group,shape=Group2), alpha = 0.55, size = 3) +
+     coord_cartesian(xlim = c(min(datos[,1]),max(datos[,1]))) +
+     scale_fill_discrete(name = "Group")
+
+
+      grafico3<- p3 +  labs(x = c(paste("PC1 Met",round(100*sgccda.res_met_gen.interaccion$prop_expl_var$metabolome[1],2),"%")),
+          y=c(paste("PC1 Micro",
+                    round(100*sgccda.res_met_gen.interaccion$prop_expl_var$microbiome[1],2),"%"))) +  
+     ggtitle(paste("Metabolome-Microbiome",sep=" "))+ 
+     theme(plot.title = element_text(hjust = 0.5),legend.position = "none") +
+     scale_color_manual(values=1:3)
+      
+
+p4 <- ggplot(datos,aes(metcomp1,microcomp2))+theme_article() +
+     geom_hline(yintercept = 0, color = "gray70") +
+     geom_vline(xintercept = 0, color = "gray70") +
+     geom_point(aes(color = Group,shape=Group2), alpha = 0.55, size = 3) +
+     coord_cartesian(xlim = c(min(datos[,1]),max(datos[,1]))) +
+     scale_fill_discrete(name = "Group")
+
+
+      grafico4<- p4 +
+     labs(x = c(paste("PC1 Meta",round(100*sgccda.res_met_gen.interaccion$prop_expl_var$metabolome[1],2),"%")),
+          y=c(paste("PC2 Micro",round(100*sgccda.res_met_gen.interaccion$prop_expl_var$microbiome[2],2),"%"))) +  
+     ggtitle(paste("Metabolome-Microbiome",sep=" "))+ 
+     theme(plot.title = element_text(hjust = 0.5),legend.position = "none") +
+     scale_color_manual(values=1:3)     
+      
+p<-ggarrange(grafico1,grafico2,grafico3,grafico4,common.legend = T,nrow=2,ncol=2,legend="bottom")
+annotate_figure(p, top = text_grob("Metabolome-Microbiome (phylum). Response Interaction Integration: DIABLO", 
+               color = "black", face = "bold", size = 14))
+```
+
+
+

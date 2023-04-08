@@ -1,0 +1,9 @@
+.Rproj.user
+.Rhistory
+.RData
+.Ruserdata
+*.html
+*.ods
+*.csv
+*.hdf5
+*.jpg

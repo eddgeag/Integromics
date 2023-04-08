@@ -1,0 +1,1602 @@
+---
+title: Integration of omics and clinical data of the hormonal, metabolic, inflammatory,
+  and oxidative response in the different macronutrients of the diet
+author: "Edmond Geraud"
+subtitle: '`r params$subtitulo`'
+date: '`r format(Sys.Date(),"%e de %B, %Y")`' 
+output:
+  prettydoc::html_pretty:
+    theme: cayman
+    highlight: github
+    toc: true
+  html_document:
+    toc: true
+    toc_depth: 2
+header-includes:
+  - \usepackage[english]{babel}
+params:
+  file.data: integromics_microbiota.xlsx
+  folder.data: ../../datos
+  general.data: Integromics_1.xlsx
+  metabolome.data : Integromics_Metabolome.xlsx
+  subtitulo: Integration of the metabolome and the microbiome
+geometry: margin=2cm
+---
+
+```{r setup, include=FALSE}
+require(knitr)
+# include this code chunk as-is to set options
+opts_chunk$set(comment = NA, prompt = TRUE, tidy = T, 
+               fig.width = 7, fig.height = 7,echo = TRUE, 
+               message = FALSE, warning = FALSE, cache=TRUE, fig_caption = TRUE)
+Sys.setlocale("LC_TIME", "C")
+```
+
+## Load the libraries
+
+```{r libraries}
+
+list.of.packages <- c("xlsx","kableExtra","dplyr","ggplot2","egg","cowplot","patchwork","gridExtra","UsingR","car","lattice","ggpubr","ggbreak","GGally","reshape2","ggcorrplot","corrplot","rela","ggrepel","factoextra","chemometrics","sparsepca","vegan","ca","ade4","pls","OmicsPLS")
+new.packages <- list.of.packages[!(list.of.packages %in% installed.packages()[,"Package"])] ## check for packages not installed 
+if(length(new.packages)) install.packages(new.packages) ## install packages if necessary
+res<-unlist(lapply(list.of.packages, require,character.only = T)) ## load packages needed for the session
+if(any(res==F)){
+  list.of.packages[which(res==F)]  ## show those package if you have troubles to install.
+}
+
+list.of.bioc.packages <- c("phyloseq","pcaMethods","ropls","mixOmics")
+new.packages.bioc <- list.of.packages[!(list.of.bioc.packages %in% installed.packages()[,"Package"])]
+if(length(new.packages.bioc)) BiocManager::install(new.packages.bioc)
+res.bioc <- unlist(lapply(list.of.bioc.packages, require,character.only = T)) 
+if(any(res.bioc==F)){
+  list.of.packages[which(res.bioc==F)]  ## show those package if you have troubles to install.
+}
+```
+
+### Functions to use
+
+```{r funciones}
+
+
+resumen<-function(x){c(round(mean(x),4),round(sd(x),4))} # Function that help us to summarize the data in mean and sd values
+lowerFn <- function(data, mapping, method = "lm", ...) {
+  p <- ggplot(data = data, mapping = mapping) +
+    geom_point(colour = "blue") +
+    geom_smooth(method = method, color = "red", ...)
+  p
+}
+
+
+## PlotPCA for different methods.
+plotPCA_methods <- function (X.list,factor, title1,title2, size = 1.5, glineas = 0.25,labels.scores,labels.loads) {
+
+    X.scores <- X.list$scores
+    X.loadings <- X.list$loadings
+    colnames(X.scores)<-paste0("PC",1:dim(X.scores)[2])
+    
+    colnames(X.loadings) <- paste0("PC",1:dim(X.loadings)[2])
+    varianza<-as.data.frame( X.list$var)
+    varianza$PC <- paste0("PC",1:length(X.list$var))
+    colnames(varianza)<-c("varianza","PC")
+  # scores
+  X.scores <- as.data.frame(X.scores)
+  Group <- factor[[1]]
+  Group2<-factor[[2]]
+  colores<-1:length(levels(Group))
+   # main plot
+   p1 <- ggplot(X.scores,aes(x=PC1, y=PC2)) +
+     theme_classic() +
+     geom_hline(yintercept = 0, color = "gray70") +
+     geom_vline(xintercept = 0, color = "gray70") +
+     geom_point(aes(color = Group,shape=Group2), alpha = 0.55, size = 3) +
+     coord_cartesian(xlim = c(min(X.scores[,1]),max(X.scores[,1]))) +
+     scale_fill_discrete(name = "Group")
+   # avoiding labels superposition
+   
+      grafico<- p1 + geom_text_repel(aes(y = PC2, label = labels.scores),segment.size = 0.25, size = size) + 
+     labs(x = c(paste("PC1",round(varianza[1,1],2),"%")),y=c(paste("PC2",round(varianza[2,1],2),"%"))) +  
+     ggtitle(paste("Principal Component Analysis for: ",title1,sep=" "))+ 
+     theme(plot.title = element_text(hjust = 0.5)) +
+     scale_color_manual(values=colores)
+
+   X.loadings <- as.data.frame(X.loadings)
+   # main plot
+   p2 <- ggplot(X.loadings,aes(x=PC1, y=PC2)) +
+     theme_classic() +
+     geom_hline(yintercept = 0, color = "gray70") +
+     geom_vline(xintercept = 0, color = "gray70") +
+     geom_point(aes(color = "gray70"), alpha = 0.55, size = 3) +
+     coord_cartesian(xlim = c(min(X.loadings[,1]),max(X.loadings[,1]))) 
+   # avoiding labels superposition
+   
+      grafico2<- p2 + geom_text_repel(aes(label = labels.loads),segment.size = 0.25, size = size) + 
+     labs(x = c(paste("PC1",round(varianza[1,1],2),"%")),y=c(paste("PC2",round(varianza[2,1],2),"%"))) +  
+     ggtitle(paste("Principal Component Analysis for: ",title2,sep=" "))+ 
+     theme(plot.title = element_text(hjust = 0.5))+ theme(legend.position = "none")
+    
+  graficos <- list(grafico,grafico2)
+return(graficos)
+}
+
+proces_bacteria <- function(datos,tipo){
+
+	Order <- bacteria_phylum.abs$Order
+	variables_in_bacteria <- general_data[general_data$Orden %in% Order , ]
+	Sample<-variables_in_bacteria$Paciente
+
+
+	if(tipo=="genera"){
+
+		Order <- Order
+
+		X <- datos[-1,-1]
+		X<-apply(X,2,as.numeric)
+		colnames(X) <- datos[1,2:ncol(datos)]
+		rownames(X) <- Sample
+		X.rel <- 100*X/rowSums(X)
+
+
+	} else if(tipo=="phylum"){
+
+		X <- datos[,-c(1:2)]
+		colnames(X) <- colnames(datos)[3:ncol(datos)]
+		rownames(X) <- Sample
+		X.rel<-100*X/rowSums(X)
+	}
+
+	GROUP <-variables_in_bacteria$GROUP
+	SEX <- variables_in_bacteria$SEX
+	OBESE<- variables_in_bacteria$OBESE
+
+	X<-as.data.frame(X)
+	X.rel<-as.data.frame(X.rel)
+
+	X$GROUP<-GROUP
+	X$SEX<-SEX
+	X$OBESE<-OBESE
+
+
+	X.rel$GROUP<-GROUP
+	X.rel$SEX<-SEX
+	X.rel$OBESE<-OBESE
+
+	return(list(abs=X,rel=X.rel))
+
+}
+
+
+## Creamos los objetos de phyloseq
+
+create_phyloseq<-function(datos,taxon){
+
+	GROUP <-variables_in_bacteria$GROUP
+	SEX <- variables_in_bacteria$SEX
+	OBESE<- variables_in_bacteria$OBESE
+	datos <- datos
+
+	X<-datos[,-c(ncol(datos)-2,ncol(datos)-1,ncol(datos))]
+
+	Xt<-t(X)
+
+	rownames(Xt) <- paste0("OTU",1:nrow(Xt))
+	OTU  <- otu_table(Xt,taxa_are_rows=T) # creamos Otu table.
+
+	tax <- as.matrix(colnames(X),ncol=1)
+	TAX <- tax_table(tax)
+	taxa_names(TAX) <- paste0("OTU",1:ncol(X))
+	colnames(TAX)<-taxon
+  
+
+	## Creamos sample table
+	samples <- as.data.frame(matrix(rep(0,dim(X)[1]*3),nrow=nrow(X),ncol=3))
+	samples[,1]<- GROUP
+	samples[,2]<- OBESE
+	samples[,3] <- SEX  
+	colnames(samples) <- c("GROUP","OBESE","SEX")
+	rownames(samples) <- variables_in_bacteria$Paciente
+	SAM<-sample_data(samples)
+
+	phyloseq_obj <- phyloseq(OTU,TAX,SAM)
+
+	return(phyloseq_obj)
+
+}
+
+perf <- function(X,X.pred){
+  # print(dim(X))
+  # print(dim(X.pred))
+  return(abs(norm(X-X.pred,type="F"))/norm(X,type="F"))
+  
+}
+
+spca.perf <- function(X,fix_parameter,transpose,scale.){
+  
+  parameter <-  seq(1e-10,1,0.01)
+  perf.vector <- vector(mode="numeric",length=length(parameter))
+  if(fix_parameter=="alpha"){
+    
+    beta <- parameter
+    alpha <- 1e-4
+  if(transpose==F){
+    
+    for( i in 1:length(parameter)){
+       perf.vector[i]<-perf(as.matrix((X)),t(spca((X),alpha=alpha,beta=beta[i],center=T,scale=scale.,verbose = F,k=ncol(X))$loadings))
+  
+    }
+    beta <- beta[which.min(perf.vector)]
+    pcx<- spca(X,alpha=alpha,beta=beta,verbose=F,center=T,scale=scale.,k=ncol(X))
+    
+  }else if(transpose==T){
+    
+        for( i in 1:length(parameter)){
+       perf.vector[i]<-perf(as.matrix(t(X)),(spca(t(X),alpha=alpha,beta=beta[i],verbose = F,center=T,scale=scale.,k=ncol(X))$scores))
+  
+    }
+    beta <- beta[which.min(perf.vector)]
+    pcx<- spca(t(X),alpha=alpha,beta=beta,verbose=F,center=T,scale=scale.,k=ncol(X))
+  }
+    
+  }else if(fix_parameter=="beta"){
+  
+    alpha <- parameter
+    beta <- 1e-4
+      if(transpose==F){
+    
+    for( i in 1:length(parameter)){
+       perf.vector[i]<-perf(as.matrix((X)),t(spca((X),alpha=alpha[i],beta=beta,center=T,scale=scale.,verbose = F,k=ncol(X))$loadings))
+  
+    }
+    alpha<- alpha[which.min(perf.vector)]
+    pcx<- spca(X,alpha=alpha,beta=beta,verbose=F,center=T,scale=scale.,k=ncol(X))
+  }else if(transpose==T){
+    
+        for( i in 1:length(parameter)){
+       perf.vector[i]<-perf(as.matrix(t(X)),(spca(t(X),alpha=alpha[i],center=T,scale=scale.,beta=beta,verbose = F,k=ncol(X))$scores))
+  
+    }
+
+    alpha<- alpha[which.min(perf.vector)]
+    pcx<- spca(t(X),alpha=alpha,beta=beta,center=T,scale=scale.,verbose=F,k=ncol(X))    
+  }
+    
+  
+  }
+  
+  return(pcx)
+}
+
+plotCA_methods <- function (ca.obj,factor, title, size = 1.5, glineas = 0.25,labels.bac,labels.samples) {
+
+    X.cord_col_stand<- data.frame(ca.obj$colcoord)
+    X.cord_col_prin <- data.frame(ca.obj$colcoord %*% diag(ca.obj$sv))
+    X.cord_row_stand <- data.frame(ca.obj$rowcoord)
+    X.cord_row_prin <- data.frame(ca.obj$rowcoord %*% diag(ca.obj$sv))
+    
+    colnames(X.cord_col_stand)<-paste0("dim",1:dim(X.cord_col_stand)[2])
+    colnames(X.cord_col_prin)<-paste0("dim",1:dim(X.cord_col_prin)[2])
+    colnames(X.cord_row_stand)<-paste0("dim",1:dim(X.cord_row_stand)[2])
+    colnames(X.cord_row_prin)<-paste0("dim",1:dim(X.cord_row_prin)[2])
+    
+    data.plot.col <- as.data.frame(cbind(X.cord_col_stand[,1],X.cord_col_prin[,2]))
+    colnames(data.plot.col)<-c("dim1","dim2")
+    
+    data.plot.row <- as.data.frame(cbind(X.cord_row_stand[,1],X.cord_row_prin[,2]))
+    colnames(data.plot.row) <- c("dim1","dim2")
+    inercia <- data.frame(100*ca.obj$sv^2/sum(ca.obj$sv^2))
+    colnames(inercia)<-"Inercia"
+    inercia$DIM <-  paste("cim",1:length(ca.obj$sv))
+    Group <- factor[[1]]
+    Group2<-factor[[2]]
+    colores<-1:length(levels(Group))
+    
+    
+   # computamos plot asymétrico con las columnas (bacterias)
+   p1 <- ggplot(data.plot.col,aes(x=dim1, y=dim2)) +
+     theme_classic() +
+     geom_hline(yintercept = 0, color = "gray70") +
+     geom_vline(xintercept = 0, color = "gray70") +
+     coord_cartesian(xlim = c(min(data.plot.col[,1]),max(data.plot.col[,1]))) 
+
+
+   # avoiding labels superposition
+   
+     grafico_columnas<- p1 + geom_text_repel(aes(y = dim2, label = labels.bac),segment.size = 0.1, size = size) + 
+       geom_point(aes(y=dim2))+
+     labs(x = c(paste("dim1",round(inercia[1,1],2),"%")),y=c(paste("dim2",round(inercia[2,1],2),"%"))) +  
+     ggtitle(paste("Canonical Correlation Analysis: Columns asymetric plot for ",title,sep=" "))+ 
+     theme(plot.title = element_text(hjust = 0.5))
+
+     
+
+   # main plot
+   p2 <- ggplot(data.plot.row,aes(x=dim1, y=dim2)) +
+     theme_classic() +
+     geom_hline(yintercept = 0, color = "gray70") +
+     geom_vline(xintercept = 0, color = "gray70") +
+    geom_point(aes(color = Group,shape=Group2), alpha = 0.55, size = 3) +
+     scale_fill_discrete(name = "Group")+
+     coord_cartesian(xlim = c(min(data.plot.row[,1]),max(data.plot.row[,1]))) 
+   # avoiding labels superposition
+   
+    grafico_filas<- p2 + geom_text_repel(aes(label = labels.samples),segment.size = 0.25, size = size) + 
+     labs(x = c(paste("dim1",round(inercia[1,1],2),"%")),y=c(paste("dim2",round(inercia[2,1],2),"%"))) +  
+     ggtitle(paste("Canonical Correlation Analysis: Rows asymetric plot for: ",title,sep=" "))+ 
+     theme(plot.title = element_text(hjust = 0.5))+ theme(legend.position = "right")
+    
+  onjeto_cca <- list(plot_cols = grafico_columnas,plot_rows = grafico_filas,
+                     prin_rows = X.cord_row_prin,stand_rows = X.cord_row_stand,
+                     prin_cols = X.cord_col_prin,stand_cols = X.cord_col_stand)
+return(onjeto_cca)
+}
+
+
+
+
+plotMDS <- function(mds.obj,factor, title,labels,method ,size = 1.5, glineas = 0.25) {
+  
+    Group <- factor[[1]]
+    Group2<-factor[[2]]
+    colores<-1:length(levels(Group))
+  if(method=="meta"){
+    
+      X.points <- data.frame(mds.obj$points)
+      X.scores <- data.frame(mds.obj$species)
+      
+       # main plot
+       p1 <- ggplot(X.points,aes(x=MDS1, y=MDS2)) +
+         theme_classic() +
+         geom_hline(yintercept = 0, color = "gray70") +
+         geom_vline(xintercept = 0, color = "gray70") +
+         geom_point(aes(color = Group,shape=Group2), alpha = 0.55, size = 3) +
+         coord_cartesian(xlim = c(min(c(X.points[,1],X.scores[,1])),max(c(X.points[,1],X.scores[,1])))) +
+         scale_fill_discrete(name = "Group")
+       # avoiding labels superposition
+       
+         grafico<- p1 + geom_text_repel(aes(y = MDS2, label = labels),segment.size = 0.25, size = size)+labs(y=c(paste("stress",round(100*mds.obj$stress,2),"%"))) +  
+           ggtitle(paste("Non-metric MDS (meta) for ",title,sep=" "))+ 
+           theme(plot.title = element_text(hjust = 0.5)) +
+           scale_color_manual(values=colores)
+    
+         grafico2<- ggplot(data=X.scores,aes(MDS1,MDS2))+
+           geom_text_repel(data=X.scores,aes(y = MDS2, label = rownames(X.scores)),
+           segment.size = 0.25, size = 2) +labs(y=c(paste("Total stress",100*round(mds.obj$stress,2),"%"))) +  
+           ggtitle(paste("Non-metric MDS (meta) for ",title,sep=" "))+
+           coord_cartesian(xlim = c(min(X.points[,1]),max(X.points[,1]))) +
+           theme(plot.title = element_text(hjust = 0.5)) 
+         
+   
+  resultado <- list(grafico1=grafico,grafico2=grafico2,dim1_samples=X.points[,1],dim2_samples=X.points[,2],
+                    dim1_species=X.scores[,1],dim2_species=X.scores[,2])
+    
+
+    
+  }else if(method=="iso"){
+    X.points <- data.frame(mds.obj$points)
+    
+    colnames(X.points)<- paste0("MDS",1:ncol(X.points))
+     colores<-1:length(levels(Group))
+   # main plot
+     p1 <- ggplot(X.points,aes(x=MDS1, y=MDS2)) +
+       theme_classic() +
+       geom_hline(yintercept = 0, color = "gray70") +
+       geom_vline(xintercept = 0, color = "gray70") +
+       geom_point(aes(color = Group,shape=Group2), alpha = 0.55, size = 3) +
+       coord_cartesian(xlim = c(min(X.points[,1]),max(X.points[,1]))) +
+       scale_fill_discrete(name = "Group")
+   # avoiding labels superposition
+       
+       grafico<- p1 + geom_text_repel(aes(y = MDS2, label = labels),segment.size = 0.25, size = size)+
+         labs(y=c(paste("Total stress",round(mds.obj$stress,2),"%"))) +  
+         ggtitle(paste("Non-metric MDS (iso) for ",title,sep=" "))+ 
+         theme(plot.title = element_text(hjust = 0.5)) +
+         scale_color_manual(values=colores)
+   
+   
+     resultado <- list(grafico1=grafico,dim1_samples=X.points[,1],dim2_samples=X.points[,2])
+  }
+  
+
+return(resultado)
+}
+
+
+plotPcoA <- function(mds.obj,factor, title,labels ,size = 1.5, glineas = 0.25) {
+  
+    Group <- factor[[1]]
+    Group2<-factor[[2]]
+    colores<-1:length(levels(Group))
+    varianza <- 100*round(mds.obj$eig/sum(mds.obj$eig),2)
+    X.points <- data.frame(mds.obj$points)
+    
+    colnames(X.points)<- paste0("PC",1:ncol(X.points))
+    colores<-1:length(levels(Group))
+   # main plot
+     p1 <- ggplot(X.points,aes(x=PC1, y=PC2)) +
+       theme_classic() +
+       geom_hline(yintercept = 0, color = "gray70") +
+       geom_vline(xintercept = 0, color = "gray70") +
+       geom_point(aes(color = Group,shape=Group2), alpha = 0.55, size = 3) +
+       coord_cartesian(xlim = c(min(X.points[,1]),max(X.points[,1]))) +
+       scale_fill_discrete(name = "Group")
+   # avoiding labels superposition
+       
+       grafico<- p1 + geom_text_repel(aes(y = PC2, label = labels),segment.size = 0.25, size = size)+
+         labs(x = c(paste("PC1",round(varianza[1],2),"%")),y=c(paste("PC2",round(varianza[2],2),"%"))) +  
+         ggtitle(paste("PCoA for ",title,sep=" "))+ 
+         theme(plot.title = element_text(hjust = 0.5)) +
+         scale_color_manual(values=colores)
+   
+   
+     resultado <- list(grafico1=grafico,dim1_samples=X.points[,1],dim2_samples=X.points[,2])
+  
+  
+
+return(resultado)
+}
+
+
+
+plot_O2PLS<-function(obj_pls,title,xcomp,ycomp,xorto,yorto,size=1.5,glineas=0.25){
+  grupos <- list(variables_in_bacteria$GROUP,variables_in_bacteria$OBESE)
+  Group <- grupos[[1]]
+  Group2<-grupos[[2]]
+  
+  colores<-1:length(levels(Group))
+  labels <- variables_in_bacteria$Paciente
+  X.joint <- as.data.frame(obj_pls$Tt)
+  colnames(X.joint) <- paste0("X_Joint",1:ncol(X.joint))
+  compxjoint <- colnames(X.joint)
+  Y.joint <- as.data.frame(obj_pls$U)
+  colnames(Y.joint) <- paste0("Y_Joint",1:ncol(Y.joint))
+  compyjoint <- colnames(Y.joint)
+  X.orto <- as.data.frame(obj_pls$T_Yosc)
+  colnames(X.orto) <- paste0("X_Ortho",1:ncol(X.orto))
+  compxorto <- colnames(X.orto)
+  Y.orto <- as.data.frame(obj_pls$U_Xosc)
+  colnames(Y.orto) <- paste0("Y_Ortho",1:ncol(Y.orto))
+  compyorto <- colnames(Y.orto)
+  
+  ## Construimos los dataframespara los gráficos.
+  
+  data_conjunto <- cbind(X.joint,Y.joint)
+  data_XYorto <- cbind(X.joint,Y.orto)
+  data_YXorto <- cbind(Y.joint,X.orto)
+  data_orto <- cbind(X.orto,Y.orto)
+  ## Grafico conjunto Primero las componentes conjuntas.
+  
+  p1 <- ggplot(data_conjunto,aes_string(x=compxjoint[xcomp], y=compyjoint[ycomp])) +
+     theme(legend.position="none") +
+     geom_hline(yintercept = 0, color = "gray70") +
+     geom_vline(xintercept = 0, color = "gray70") +
+     geom_point(aes(color = Group,shape=Group2), alpha = 0.5, size = 3) +
+     scale_fill_discrete(name = "Group")
+   # avoiding labels superposition
+   
+
+      
+  p2 <-  ggplot(data_XYorto,aes_string(x=compxjoint[xcomp], y=compyorto[yorto])) +
+     theme(legend.position="none") +
+     geom_hline(yintercept = 0, color = "gray70") +
+     geom_vline(xintercept = 0, color = "gray70") +
+     geom_point(aes(color = Group,shape=Group2), alpha = 0.5, size = 3) +
+     scale_fill_discrete(name = "Group")
+   # avoiding labels superposition
+   
+  
+    p3 <-  ggplot(data_YXorto,aes_string(x=compyjoint[ycomp], y=compxorto[xorto])) +
+     theme(legend.position="none") +
+     geom_hline(yintercept = 0, color = "gray70") +
+     geom_vline(xintercept = 0, color = "gray70") +
+     geom_point(aes(color = Group,shape=Group2), alpha = 0.5, size = 3) +
+     scale_fill_discrete(name = "Group")
+   # avoiding labels superposition
+
+      
+    p4 <-  ggplot(data_orto,aes_string(x=compxorto[xorto], y=compyorto[yorto])) +
+     theme(legend.position="none") +
+     geom_hline(yintercept = 0, color = "gray70") +
+     geom_vline(xintercept = 0, color = "gray70") +
+     geom_point(aes(color = Group,shape=Group2), alpha = 0.5, size = 3) +
+     scale_fill_discrete(name = "Group")
+   # avoiding labels superposition
+
+
+      ggarrange(p1,p2,p3,p4,ncol=2,nrow=2,common.legend = T,legend="bottom")
+
+
+  
+}
+
+plotPLS2 <- function (pls_obj,title, labels,cmpx,cmpy,size = 1.5, glineas = 0.25) {
+    factor <- list(variables_in_bacteria$GROUP,variables_in_bacteria$OBESE)
+    X.scores <- as.data.frame(matrix(pls_obj$scores,ncol = ncol(pls_obj$scores),nrow=nrow(pls_obj$scores)))
+    colnames(X.scores)<-paste0("PCx",1:dim(X.scores)[2])
+    compxscores <- colnames(X.scores)
+    Y.scores <- as.data.frame(matrix(pls_obj$Yscores,ncol = ncol(pls_obj$Yscores),nrow=nrow(pls_obj$Yscores)))
+    colnames(Y.scores)<-paste0("PCy",1:dim(Y.scores)[2])
+    compyscores <- colnames(Y.scores)
+    data_conjunto <- cbind(X.scores,Y.scores)
+    varianza<-as.data.frame(100*pls_obj$Xvar/sum(pls_obj$Xvar))
+    
+    varianza$PC <- paste0("PC",1:length(pls_obj$Xvar))
+    colnames(varianza)<-c("varianza","PC")
+    colnames(X.scores) <- paste0("PC",1:length(pls_obj$Xvar))
+  # scores
+  Group <- factor[[1]]
+  Group2<-factor[[2]]
+  colores<-1:length(levels(Group))
+   # main plot
+   p1 <- ggplot(data_conjunto,aes_string(x=compxscores[cmpx], y=compyscores[cmpy])) +
+     theme_classic() +theme(legend.position = "none")+
+     geom_hline(yintercept = 0, color = "gray70") +
+     geom_vline(xintercept = 0, color = "gray70") +
+     geom_point(aes(color = Group,shape=Group2), alpha = 0.55, size = 3)+
+     scale_fill_discrete(name = "Group")+labs(y=title)
+   # avoiding labels superposition
+
+
+return(p1)
+}
+
+
+
+compare_pls <- function(X,Y,center,scale){
+  
+  ## Function PLS2 that compares X as independent or dependent variable.
+  
+  pls_obj_xy <- plsr(X~Y,val.type="CV",center=center,scale=scale)
+  pls_obj_yx <- plsr(Y~X,val.type="CV",center=center,scale=scale)
+  
+  pls_obj <- list(inde_micro = pls_obj_xy,inde_meta =pls_obj_yx)
+  
+  return(pls_obj)
+  
+}
+
+modelos_o2pls <- function(X,Y){
+  
+  X<-scale(X)
+  Y<-scale(Y)
+  n<-1
+  
+  while(n<=1){
+  res_cv <- crossval_o2m_adjR2(X, Y, 1:4, 0:4, 0:4, nr_folds = 3)
+  res_cv_min_mse <- res_cv[which.min(res_cv[,1]),]
+  n<-as.numeric(res_cv_min_mse[2])
+  
+  }
+  
+  nx <- as.numeric(res_cv_min_mse[3])
+  ny <- as.numeric(res_cv_min_mse[4])
+  
+  res <- o2m2(X =X,Y = Y,n = n,nx = nx,ny = ny)
+  
+  return(res)
+  
+  
+}
+```
+
+
+## Load the data
+
+```{r}
+
+general_data <- read.xlsx(file.path(params$folder.data,params$general.data),sheetIndex =1)
+general_data$SEX <- factor(general_data$SEX, levels = c(0, 2), labels = c("Female", "Male"))
+general_data$OBESE <- factor(general_data$OBESE, levels = c(0, 1), labels = c("No Obese", "Obese"))
+general_data$GROUP <- factor(general_data$GROUP, levels = c(0, 1, 2), labels = c("Female",  "PCOS", "Male"))
+
+bacteria_phylum.abs <- as.data.frame(read.xlsx(file.path(params$folder.data,params$file.data), sheetIndex = 1))
+bacteria_genera.abs <- as.data.frame(t(read.xlsx(file.path(params$folder.data,params$file.data), sheetIndex = 3)))
+
+metabolome_file<-file.path(params$folder.data,file=params$metabolome.data) ## file path of the data
+metabolome.tmp<-read.xlsx(metabolome_file,sheetIndex = 1) # read the data
+any(is.na(metabolome.tmp)) # there is a row of missing values.
+metabolome<-metabolome.tmp[-nrow(metabolome.tmp),] ## remove the missing value row
+metabolome$GROUP<-general_data$GROUP ## add GROUP variable 
+metabolome$OBESE <- general_data$OBESE ## add OBESE variables.
+```
+
+## Select those samples in common
+
+```{r}
+variables_in_bacteria <- general_data[general_data$Orden %in% bacteria_phylum.abs$Order, ]
+```
+
+
+The next samples not are in the metagenome dataset
+
+```{r}
+general_data[!general_data$Orden %in% bacteria_phylum.abs$Order, ][,1:5]
+```
+
+
+Before start the analysis, let's create `phyloseq` objects.
+
+```{r}
+phylum.list <- proces_bacteria(bacteria_phylum.abs,tipo="phylum")
+genera.list <- proces_bacteria(bacteria_genera.abs,tipo="genera")
+
+phylum.abs <- phylum.list$abs;phylum.rel<-phylum.list$rel
+genera.abs <- genera.list$abs;genera.rel<-genera.list$rel
+
+phyloseq_phyla_abs <- create_phyloseq(phylum.abs,"phylum")
+phyloseq_phyla_rel<- create_phyloseq(phylum.rel,"phylum")
+
+phyloseq_genera_abs <- create_phyloseq(genera.abs,"genus")
+phyloseq_genera_rel<- create_phyloseq(genera.rel,"genus")
+```
+
+Before starting the integrative analysis, let's exclude those samples, on the metabolome that are not in the microbiome. And exclude the postprandial variables on the metabolome
+
+```{r}
+metabolome_common <-  metabolome[metabolome$Order %in% variables_in_bacteria$Orden,]
+```
+
+Let's consider only the basal data set of the metabolome
+
+```{r}
+X<-as.matrix(metabolome_common[,-c(1,2,ncol(metabolome_common)-1,ncol(metabolome_common))])
+
+X.post <- X[,grep("AU[GC]",colnames(X),invert=F)]
+X.basal_tot <- X[,grep("AU[GC]",colnames(X),invert=T)]
+X.mean_basal <- X.basal_tot[,grep("mean",colnames(X.basal_tot))]
+X.basal <- X.basal_tot[,grep("mean",colnames(X.basal_tot),invert=T)] # basal values of the metabolome
+```
+
+Now let's extract the microbiome data, the genera and the phylum, relative and absolute abundance. 
+```{r}
+Y.abs.p <- as.matrix(phylum.abs[,-c(ncol(phylum.abs)-2,ncol(phylum.abs)-1,ncol(phylum.abs))]);
+Y.abs.p<-Y.abs.p[,colSums(Y.abs.p)>0] # absolute abundance phyla
+Y.rel.p <- as.matrix(phylum.rel[,-c(ncol(phylum.rel)-2,ncol(phylum.rel)-1,ncol(phylum.rel))]);
+Y.rel.p<-Y.rel.p[,colSums(Y.rel.p)>0] # relative abundance phyla
+Y.abs.g <- as.matrix(genera.abs[,-c(ncol(genera.abs)-2,ncol(genera.abs)-1,ncol(genera.abs))]);
+Y.abs.g <- Y.abs.g[,colSums(Y.abs.g)>0] # absolute abundance genera
+Y.rel.g <- as.matrix(genera.rel[,-c(ncol(genera.rel)-2,ncol(genera.rel)-1,ncol(genera.rel))]);
+Y.rel.g <- Y.rel.g[,colSums(Y.rel.g)>0] # relative abundance general
+ 
+```
+
+
+# Notes on integration microbiome-metabolome.
+
+Firstly we have to take into account same samples across blocks. Data has to be standardized and mean centered. We are going to explore PLS2 and PLS2-O. On both methods, we are going to explore the dependence of the microbiome on the metabolome and viceversa.
+
+
+
+## PLS2 integration.
+
+
+```{r}
+lista_relaciones  <-list(abs_p = list(meta=X.basal,micro=Y.abs.p),
+                         rel_p = list(meta=X.basal,micro = Y.rel.p),
+                         abs_g = list(meta=X.basal,micro =Y.abs.g),
+                         rel_g = list(meta=X.basal,micro=Y.rel.g))
+
+
+
+lista_pls_res <- vector(mode="list",length=length(lista_relaciones))
+names(lista_pls_res) <- c("abs_p","rel_p","abs_g","rel_g")
+for( rel in 1:length(lista_relaciones)){
+  
+  X<-as.matrix(lista_relaciones[[rel]]$meta)
+  Y <-as.matrix(lista_relaciones[[rel]]$micro)
+  lista_pls_res[[rel]] <- compare_pls(X,Y,center=T,scale=T)
+}
+
+```
+
+
+```{r}
+grupos <- list(variables_in_bacteria$GROUP,variables_in_bacteria$OBESE) ##factors to be plotted
+lista_graficos_pls_inde_meta <- vector(mode="list",length=4)
+lista_graficos_pls_inde_micro <- vector(mode="list",length=4)
+
+for(res in 1:length(lista_pls_res)){
+  
+  inde_meta<- lista_pls_res[[res]]$inde_meta
+  inde_micro <- lista_pls_res[[res]]$inde_micro
+  lista_graficos_pls_inde_micro[[res]] <- plotPLS2(inde_micro,
+                                                   title = paste("independiente: microbioma",
+                                                                 names(lista_pls_res)[res]),labels = rownames(X),cmpx = 1,cmpy=2)
+  lista_graficos_pls_inde_meta[[res]] <- plotPLS2(inde_meta,
+                                                  title=paste("independiente_metabolome",
+                                                              names(lista_pls_res)[res]),
+                                                  labels = rownames(X),cmpx = 1,cmpy = 2)
+  
+  
+}
+
+```
+
+
+Graficos independiente microbioma.
+```{r}
+ggarrange(
+lista_graficos_pls_inde_micro[[1]],
+lista_graficos_pls_inde_micro[[2]],
+lista_graficos_pls_inde_micro[[3]],
+lista_graficos_pls_inde_micro[[4]],common.legend = T)
+```
+
+Graficos independiente metaboloma
+```{r}
+ggarrange(lista_graficos_pls_inde_meta[[1]],
+lista_graficos_pls_inde_meta[[2]],
+lista_graficos_pls_inde_meta[[3]],
+lista_graficos_pls_inde_meta[[4]],common.legend = T)
+
+```
+
+
+```{r}
+res2 <- plsr(Y.abs.g~X.basal,val.type="CV",center=T,scale=T)
+
+plot(res2$scores,col=variables_in_bacteria$GROUP,pch=as.numeric(variables_in_bacteria$OBESE))
+```
+
+
+
+
+
+
+
+
+
+
+
+### Summary results PLS2
+The best output is with the independent variable the metabolome, with better results on the genus.
+
+
+
+# OPLS2
+
+Firstly we have to determine the number of components, we are going to scale and center the data. Also we are going to explore the independence or dependence of the metabolome. 
+
+
+
+```{r}
+
+lista_relaciones_2  <-list(meta=X.mean_basal,
+                         micro_phyla_abs=Y.abs.p,
+                         micro_phyla_rel = Y.rel.p,
+                         micro_gen_abs =Y.abs.g,
+                         micro_gen_rel=Y.rel.g)
+
+
+res_o2m_scaleT <- vector(mode="list",length=4)
+
+names(res_o2m_scaleT) <- c("abs_phyla","rel_phyla","abs_gen","rel_gen")
+
+for(m in 1:4){
+  
+  
+  res_o2m_scaleT[[m]]<-modelos_o2pls(lista_relaciones_2$meta,lista_relaciones_2[[m+1]])
+
+  
+  
+}
+
+
+```
+
+```{r}
+lista_graficos_scale_T <- vector(mode="list",length=4)
+names(lista_graficos_scale_T) <- c("abs_phyla","rel_phyla","abs_gen","rel_gen")
+
+
+aux.fun <- function(x){
+  if(length(x)>1){
+      return(which.max(x))
+  }
+  else{
+    return(1)
+  }
+  }
+
+for( i in 1:4){
+  
+  varXjoint <- aux.fun(res_o2m_scaleT[[i]]$flags$varXjoint)
+  varYjoint <- aux.fun(res_o2m_scaleT[[i]]$flags$varYjoint)
+  varXorth <- aux.fun(res_o2m_scaleT[[i]]$flags$varXorth)
+  varYorth <- aux.fun(res_o2m_scaleT[[i]]$flags$varYorth)
+  
+  
+  lista_graficos_scale_T[[i]]<-plot_O2PLS(obj_pls = res_o2m_scaleT[[i]],
+                                          title = names(res_o2m_scaleT)[i],
+                                          xcomp = 1,ycomp = 2,xorto = varXorth,yorto = varYorth)
+  
+  
+}
+```
+
+
+
+Vemos los gráficos escalados y sin escalar del filo
+
+```{r}
+lista_graficos_scale_T$abs_phyla
+lista_graficos_scale_T$rel_phyla
+```
+
+genero
+
+```{r}
+lista_graficos_scale_T$abs_gen
+lista_graficos_scale_T$rel_gen
+
+
+```
+
+
+## DIABLO
+```{r}
+rownames(X.basal) <- rownames(Y.abs.p)
+
+```
+
+
+### With GROUP variable as outcome.
+
+#### Only phylum
+
+##### absolute abundance
+
+```{r}
+outcome <- variables_in_bacteria$GROUP
+
+datos <- list(metabolomics = X.basal,filo_abs=Y.abs.p)
+design = matrix(0.1, ncol = length(datos), nrow = length(datos), 
+                dimnames = list(names(datos), names(datos)))
+diag(design) = 0
+
+design 
+
+sgccda.res = block.splsda(X = datos, Y=outcome, ncomp = 10,
+                           design = design)
+
+set.seed(123) # for reproducibility, only when the `cpus' argument is not used
+# this code takes a couple of min to run
+perf.diablo = mixOmics::perf(sgccda.res, validation = 'Mfold', folds = 10, nrepeat = 10)
+
+#perf.diablo  # lists the different outputs
+plot(perf.diablo) 
+
+perf.diablo$choice.ncomp$WeightedVote
+ncomp = perf.diablo$choice.ncomp$WeightedVote["Overall.BER", "centroids.dist"]
+
+sgccda.res = block.splsda(X = datos, Y = outcome, ncomp = ncomp, design = design)
+```
+
+
+```{r}
+plotDiablo(sgccda.res, ncomp = 1)
+
+
+plotIndiv(sgccda.res, ind.names = FALSE, legend = TRUE, title = 'DIABLO')
+
+```
+
+
+##### relative abundance
+
+```{r}
+outcome <- variables_in_bacteria$GROUP
+
+datos <- list(metabolomics = X.basal,filo_rel=Y.rel.p)
+design = matrix(0.1, ncol = length(datos), nrow = length(datos), 
+                dimnames = list(names(datos), names(datos)))
+diag(design) = 0
+
+design 
+
+sgccda.res = block.splsda(X = datos, Y=outcome, ncomp = 10,
+                           design = design)
+set.seed(123) # for reproducibility, only when the `cpus' argument is not used
+# this code takes a couple of min to run
+perf.diablo = mixOmics::perf(sgccda.res, validation = 'Mfold', folds = 10, nrepeat = 10)
+
+#perf.diablo  # lists the different outputs
+plot(perf.diablo) 
+
+perf.diablo$choice.ncomp$WeightedVote
+ncomp = perf.diablo$choice.ncomp$WeightedVote["Overall.BER", "centroids.dist"]
+
+sgccda.res = block.splsda(X = datos, Y = outcome, ncomp = ncomp, design = design)
+```
+
+
+
+```{r}
+plotDiablo(sgccda.res, ncomp = 1)
+
+
+plotIndiv(sgccda.res, ind.names = FALSE, legend = TRUE, title = 'DIABLO')
+
+```
+
+
+#### Only genera
+
+##### absolute abundance
+
+```{r}
+outcome <- variables_in_bacteria$GROUP
+
+datos <- list(metabolomics = X.basal,genus_abs=Y.abs.g)
+design = matrix(0.1, ncol = length(datos), nrow = length(datos), 
+                dimnames = list(names(datos), names(datos)))
+diag(design) = 0
+
+design 
+
+sgccda.res = block.splsda(X = datos, Y=outcome, ncomp = 10,
+                           design = design)
+set.seed(123) # for reproducibility, only when the `cpus' argument is not used
+# this code takes a couple of min to run
+perf.diablo = mixOmics::perf(sgccda.res, validation = 'Mfold', folds = 10, nrepeat = 10)
+
+#perf.diablo  # lists the different outputs
+plot(perf.diablo) 
+
+perf.diablo$choice.ncomp$WeightedVote
+ncomp = perf.diablo$choice.ncomp$WeightedVote["Overall.BER", "centroids.dist"]
+
+sgccda.res = block.splsda(X = datos, Y = outcome, ncomp = ncomp, design = design)
+```
+
+
+
+```{r}
+plotDiablo(sgccda.res, ncomp = 1)
+
+
+plotIndiv(sgccda.res, ind.names = FALSE, legend = TRUE, title = 'DIABLO')
+
+```
+
+
+
+#### relative abundance
+```{r}
+outcome <- variables_in_bacteria$GROUP
+
+datos <- list(metabolomics = X.basal,genus_rel=Y.rel.g)
+design = matrix(0.1, ncol = length(datos), nrow = length(datos), 
+                dimnames = list(names(datos), names(datos)))
+diag(design) = 0
+
+design 
+
+sgccda.res = block.splsda(X = datos, Y=outcome, ncomp = 10,
+                           design = design)
+set.seed(123) # for reproducibility, only when the `cpus' argument is not used
+# this code takes a couple of min to run
+perf.diablo = mixOmics::perf(sgccda.res, validation = 'Mfold', folds = 10, nrepeat = 10)
+
+#perf.diablo  # lists the different outputs
+plot(perf.diablo) 
+
+perf.diablo$choice.ncomp$WeightedVote
+ncomp = perf.diablo$choice.ncomp$WeightedVote["Overall.BER", "centroids.dist"]
+
+sgccda.res = block.splsda(X = datos, Y = outcome, ncomp = ncomp, design = design)
+```
+
+
+```{r}
+plotDiablo(sgccda.res, ncomp = 1)
+
+if(!ncomp<2){
+  plotIndiv(sgccda.res, ind.names = FALSE, legend = TRUE, title = 'DIABLO')
+
+}
+```
+
+#### Both
+
+
+
+
+##### absolute abundance
+```{r}
+outcome <- variables_in_bacteria$GROUP
+
+datos <- list(metabolomics = X.basal,abs_filo =Y.abs.p,abs_genus = Y.abs.g)
+design = matrix(0.1, ncol = length(datos), nrow = length(datos), 
+                dimnames = list(names(datos), names(datos)))
+diag(design) = 0
+
+design 
+
+sgccda.res = block.splsda(X = datos, Y=outcome, ncomp = 10,
+                           design = design)
+
+set.seed(123) # for reproducibility, only when the `cpus' argument is not used
+# this code takes a couple of min to run
+perf.diablo = mixOmics::perf(sgccda.res, validation = 'Mfold', folds = 10, nrepeat = 10)
+
+#perf.diablo  # lists the different outputs
+plot(perf.diablo) 
+
+perf.diablo$choice.ncomp$WeightedVote
+ncomp = perf.diablo$choice.ncomp$WeightedVote["Overall.BER", "centroids.dist"]
+
+sgccda.res = block.splsda(X = datos, Y = outcome, ncomp = ncomp, design = design)
+```
+
+
+```{r}
+plotDiablo(sgccda.res, ncomp = 1)
+
+if(!ncomp<2){
+  
+  plotIndiv(sgccda.res, ind.names = FALSE, legend = TRUE, title = 'DIABLO')
+
+}
+```
+
+#### relative abundance
+
+```{r}
+outcome <- variables_in_bacteria$GROUP
+
+datos <- list(metabolomics = X.basal,rel_filo =Y.rel.p,rel_genus = Y.rel.g)
+design = matrix(0.1, ncol = length(datos), nrow = length(datos), 
+                dimnames = list(names(datos), names(datos)))
+diag(design) = 0
+
+design 
+
+sgccda.res = block.splsda(X = datos, Y=outcome, ncomp = 10,
+                           design = design)
+
+set.seed(123) # for reproducibility, only when the `cpus' argument is not used
+# this code takes a couple of min to run
+perf.diablo = mixOmics::perf(sgccda.res, validation = 'Mfold', folds = 10, nrepeat = 10)
+
+#perf.diablo  # lists the different outputs
+plot(perf.diablo) 
+
+perf.diablo$choice.ncomp$WeightedVote
+ncomp = perf.diablo$choice.ncomp$WeightedVote["Overall.BER", "centroids.dist"]
+
+sgccda.res = block.splsda(X = datos, Y = outcome, ncomp = ncomp, design = design)
+```
+
+
+```{r}
+plotDiablo(sgccda.res, ncomp = 1)
+
+
+if(!ncomp<2){
+  
+  plotIndiv(sgccda.res, ind.names = FALSE, legend = TRUE, title = 'DIABLO')
+
+}
+
+```
+
+### With OBESE variable as outcome.
+
+
+
+#### Only phylum
+
+##### absolute abundance
+
+```{r}
+outcome <- variables_in_bacteria$OBESE
+
+datos <- list(metabolomics = X.basal,filo_abs=Y.abs.p)
+design = matrix(0.1, ncol = length(datos), nrow = length(datos), 
+                dimnames = list(names(datos), names(datos)))
+diag(design) = 0
+
+design 
+
+sgccda.res = block.splsda(X = datos, Y=outcome, ncomp = 10,
+                           design = design)
+
+set.seed(123) # for reproducibility, only when the `cpus' argument is not used
+# this code takes a couple of min to run
+perf.diablo = mixOmics::perf(sgccda.res, validation = 'Mfold', folds = 10, nrepeat = 10)
+
+#perf.diablo  # lists the different outputs
+plot(perf.diablo) 
+
+perf.diablo$choice.ncomp$WeightedVote
+ncomp = perf.diablo$choice.ncomp$WeightedVote["Overall.BER", "centroids.dist"]
+
+sgccda.res = block.splsda(X = datos, Y = outcome, ncomp = ncomp, design = design)
+```
+
+
+```{r}
+plotDiablo(sgccda.res, ncomp = 1)
+
+
+if(!ncomp<2){
+  
+  plotIndiv(sgccda.res, ind.names = FALSE, legend = TRUE, title = 'DIABLO')
+
+}
+```
+
+
+##### relative abundance
+
+```{r}
+outcome <- variables_in_bacteria$OBESE
+
+datos <- list(metabolomics = X.basal,filo_rel=Y.rel.p)
+design = matrix(0.1, ncol = length(datos), nrow = length(datos), 
+                dimnames = list(names(datos), names(datos)))
+diag(design) = 0
+
+design 
+
+sgccda.res = block.splsda(X = datos, Y=outcome, ncomp = 10,
+                           design = design)
+set.seed(123) # for reproducibility, only when the `cpus' argument is not used
+# this code takes a couple of min to run
+perf.diablo = mixOmics::perf(sgccda.res, validation = 'Mfold', folds = 10, nrepeat = 10)
+
+#perf.diablo  # lists the different outputs
+plot(perf.diablo) 
+
+perf.diablo$choice.ncomp$WeightedVote
+ncomp = perf.diablo$choice.ncomp$WeightedVote["Overall.BER", "centroids.dist"]
+
+sgccda.res = block.splsda(X = datos, Y = outcome, ncomp = ncomp, design = design)
+```
+
+
+
+```{r}
+plotDiablo(sgccda.res, ncomp = 1)
+
+
+if(!ncomp<2){
+  
+  plotIndiv(sgccda.res, ind.names = FALSE, legend = TRUE, title = 'DIABLO')
+
+}
+```
+
+
+#### Only genera
+
+##### absolute abundance
+
+```{r}
+outcome <- variables_in_bacteria$OBESE
+
+datos <- list(metabolomics = X.basal,genus_abs=Y.abs.g)
+design = matrix(0.1, ncol = length(datos), nrow = length(datos), 
+                dimnames = list(names(datos), names(datos)))
+diag(design) = 0
+
+design 
+
+sgccda.res = block.splsda(X = datos, Y=outcome, ncomp = 10,
+                           design = design)
+
+set.seed(123) # for reproducibility, only when the `cpus' argument is not used
+# this code takes a couple of min to run
+perf.diablo = mixOmics::perf(sgccda.res, validation = 'Mfold', folds = 10, nrepeat = 10)
+
+#perf.diablo  # lists the different outputs
+plot(perf.diablo) 
+
+perf.diablo$choice.ncomp$WeightedVote
+ncomp = perf.diablo$choice.ncomp$WeightedVote["Overall.BER", "centroids.dist"]
+
+sgccda.res = block.splsda(X = datos, Y = outcome, ncomp = ncomp, design = design)
+```
+
+
+
+```{r}
+plotDiablo(sgccda.res, ncomp = 1)
+
+
+if(!ncomp<2){
+  
+  plotIndiv(sgccda.res, ind.names = FALSE, legend = TRUE, title = 'DIABLO')
+
+}
+```
+
+
+
+
+
+#### relative abundance
+```{r}
+outcome <- variables_in_bacteria$OBESE
+
+datos <- list(metabolomics = X.basal,genus_rel=Y.rel.g)
+design = matrix(0.1, ncol = length(datos), nrow = length(datos), 
+                dimnames = list(names(datos), names(datos)))
+diag(design) = 0
+
+design 
+
+sgccda.res = block.splsda(X = datos, Y=outcome, ncomp = 10,
+                           design = design)
+
+set.seed(123) # for reproducibility, only when the `cpus' argument is not used
+# this code takes a couple of min to run
+perf.diablo = mixOmics::perf(sgccda.res, validation = 'Mfold', folds = 10, nrepeat = 10)
+
+#perf.diablo  # lists the different outputs
+plot(perf.diablo) 
+
+perf.diablo$choice.ncomp$WeightedVote
+ncomp = perf.diablo$choice.ncomp$WeightedVote["Overall.BER", "centroids.dist"]
+
+sgccda.res = block.splsda(X = datos, Y = outcome, ncomp = ncomp, design = design)
+```
+
+
+```{r}
+plotDiablo(sgccda.res, ncomp = 1)
+
+
+if(!ncomp<2){
+  
+  plotIndiv(sgccda.res, ind.names = FALSE, legend = TRUE, title = 'DIABLO')
+
+}
+
+```
+
+#### Both
+
+
+
+
+##### absolute abundance
+```{r}
+outcome <- variables_in_bacteria$OBESE
+
+datos <- list(metabolomics = X.basal,abs_filo =Y.abs.p,abs_genus = Y.abs.g)
+design = matrix(0.1, ncol = length(datos), nrow = length(datos), 
+                dimnames = list(names(datos), names(datos)))
+diag(design) = 0
+
+design 
+
+sgccda.res = block.splsda(X = datos, Y=outcome, ncomp = 10,
+                           design = design)
+
+set.seed(123) # for reproducibility, only when the `cpus' argument is not used
+# this code takes a couple of min to run
+perf.diablo = mixOmics::perf(sgccda.res, validation = 'Mfold', folds = 10, nrepeat = 10)
+
+#perf.diablo  # lists the different outputs
+plot(perf.diablo) 
+
+perf.diablo$choice.ncomp$WeightedVote
+ncomp = perf.diablo$choice.ncomp$WeightedVote["Overall.BER", "centroids.dist"]
+
+sgccda.res = block.splsda(X = datos, Y = outcome, ncomp = ncomp, design = design)
+```
+
+
+```{r}
+plotDiablo(sgccda.res, ncomp = 1)
+
+
+if(!ncomp<2){
+  
+  plotIndiv(sgccda.res, ind.names = FALSE, legend = TRUE, title = 'DIABLO')
+
+}
+
+```
+
+#### relative abundance
+
+```{r}
+outcome <- variables_in_bacteria$OBESE
+
+datos <- list(metabolomics = X.basal,rel_filo =Y.rel.p,rel_genus = Y.rel.g)
+design = matrix(0.1, ncol = length(datos), nrow = length(datos), 
+                dimnames = list(names(datos), names(datos)))
+diag(design) = 0
+
+design 
+
+sgccda.res = block.splsda(X = datos, Y=outcome, ncomp = 10,
+                           design = design)
+
+set.seed(123) # for reproducibility, only when the `cpus' argument is not used
+# this code takes a couple of min to run
+perf.diablo = mixOmics::perf(sgccda.res, validation = 'Mfold', folds = 10, nrepeat = 10)
+
+#perf.diablo  # lists the different outputs
+plot(perf.diablo) 
+
+perf.diablo$choice.ncomp$WeightedVote
+ncomp = perf.diablo$choice.ncomp$WeightedVote["Overall.BER", "centroids.dist"]
+
+sgccda.res = block.splsda(X = datos, Y = outcome, ncomp = ncomp, design = design)
+```
+
+
+```{r}
+plotDiablo(sgccda.res, ncomp = 1)
+
+
+if(!ncomp<2){
+  
+  plotIndiv(sgccda.res, ind.names = FALSE, legend = TRUE, title = 'DIABLO')
+
+}
+
+```
+
+
+### With OBESE and GROUP variables as outcome.
+
+#### Only phylum
+
+##### absolute abundance
+
+```{r}
+outcome <-with(variables_in_bacteria,interaction(GROUP,OBESE))
+
+datos <- list(metabolomics = X.basal,filo_abs=Y.abs.p)
+design = matrix(0.1, ncol = length(datos), nrow = length(datos), 
+                dimnames = list(names(datos), names(datos)))
+diag(design) = 0
+
+design 
+
+sgccda.res = block.splsda(X = datos, Y=outcome, ncomp = 10,
+                           design = design)
+
+set.seed(123) # for reproducibility, only when the `cpus' argument is not used
+# this code takes a couple of min to run
+perf.diablo = mixOmics::perf(sgccda.res, validation = 'Mfold', folds = 10, nrepeat = 10)
+
+#perf.diablo  # lists the different outputs
+plot(perf.diablo) 
+
+perf.diablo$choice.ncomp$WeightedVote
+ncomp = perf.diablo$choice.ncomp$WeightedVote["Overall.BER", "centroids.dist"]
+
+sgccda.res = block.splsda(X = datos, Y = outcome, ncomp = ncomp, design = design)
+```
+
+
+```{r}
+plotDiablo(sgccda.res, ncomp = 1)
+
+
+if(!ncomp<2){
+  
+  plotIndiv(sgccda.res, ind.names = FALSE, legend = TRUE, title = 'DIABLO')
+
+}
+```
+
+
+##### relative abundance
+
+```{r}
+outcome <-with(variables_in_bacteria,interaction(GROUP,OBESE))
+
+datos <- list(metabolomics = X.basal,filo_rel=Y.rel.p)
+design = matrix(0.1, ncol = length(datos), nrow = length(datos), 
+                dimnames = list(names(datos), names(datos)))
+diag(design) = 0
+
+design 
+
+sgccda.res = block.splsda(X = datos, Y=outcome, ncomp = 10,
+                           design = design)
+set.seed(123) # for reproducibility, only when the `cpus' argument is not used
+# this code takes a couple of min to run
+perf.diablo = mixOmics::perf(sgccda.res, validation = 'Mfold', folds = 10, nrepeat = 10)
+
+#perf.diablo  # lists the different outputs
+plot(perf.diablo) 
+
+perf.diablo$choice.ncomp$WeightedVote
+ncomp = perf.diablo$choice.ncomp$WeightedVote["Overall.BER", "centroids.dist"]
+
+sgccda.res = block.splsda(X = datos, Y = outcome, ncomp = ncomp, design = design)
+```
+
+
+
+```{r}
+plotDiablo(sgccda.res, ncomp = 1)
+
+
+if(!ncomp<2){
+  
+  plotIndiv(sgccda.res, ind.names = FALSE, legend = TRUE, title = 'DIABLO')
+
+}
+```
+
+
+#### Only genera
+
+##### absolute abundance
+
+```{r}
+outcome <-with(variables_in_bacteria,interaction(GROUP,OBESE))
+
+datos <- list(metabolomics = X.basal,genus_abs=Y.abs.g)
+design = matrix(0.1, ncol = length(datos), nrow = length(datos), 
+                dimnames = list(names(datos), names(datos)))
+diag(design) = 0
+
+design 
+
+sgccda.res = block.splsda(X = datos, Y=outcome, ncomp = 10,
+                           design = design)
+
+set.seed(123) # for reproducibility, only when the `cpus' argument is not used
+# this code takes a couple of min to run
+perf.diablo = mixOmics::perf(sgccda.res, validation = 'Mfold', folds = 10, nrepeat = 10)
+
+#perf.diablo  # lists the different outputs
+plot(perf.diablo) 
+
+perf.diablo$choice.ncomp$WeightedVote
+ncomp = perf.diablo$choice.ncomp$WeightedVote["Overall.BER", "centroids.dist"]
+
+sgccda.res = block.splsda(X = datos, Y = outcome, ncomp = ncomp, design = design)
+```
+
+
+
+```{r}
+plotDiablo(sgccda.res, ncomp = 2)
+
+
+if(!ncomp<2){
+  
+  plotIndiv(sgccda.res, ind.names = FALSE, legend = TRUE, title = 'DIABLO')
+
+}
+```
+
+
+
+#### relative abundance
+```{r}
+outcome <-with(variables_in_bacteria,interaction(GROUP,OBESE))
+
+datos <- list(metabolomics = X.basal,genus_rel=Y.rel.g)
+design = matrix(0.1, ncol = length(datos), nrow = length(datos), 
+                dimnames = list(names(datos), names(datos)))
+diag(design) = 0
+
+design 
+sgccda.res = block.splsda(X = datos, Y=outcome, ncomp = 10,
+                           design = design)
+
+set.seed(123) # for reproducibility, only when the `cpus' argument is not used
+# this code takes a couple of min to run
+perf.diablo = mixOmics::perf(sgccda.res, validation = 'Mfold', folds = 10, nrepeat = 10)
+
+#perf.diablo  # lists the different outputs
+plot(perf.diablo) 
+
+perf.diablo$choice.ncomp$WeightedVote
+ncomp = perf.diablo$choice.ncomp$WeightedVote["Overall.BER", "centroids.dist"]
+
+sgccda.res = block.splsda(X = datos, Y = outcome, ncomp = ncomp, design = design)
+```
+
+
+```{r}
+plotDiablo(sgccda.res, ncomp = 1)
+
+
+if(!ncomp<2){
+  
+  plotIndiv(sgccda.res, ind.names = FALSE, legend = TRUE, title = 'DIABLO')
+
+}
+
+```
+
+#### Both
+
+
+
+
+##### absolute abundance
+```{r}
+outcome <-with(variables_in_bacteria,interaction(GROUP,OBESE))
+
+datos <- list(metabolomics = X.basal,abs_filo =Y.abs.p,abs_genus = Y.abs.g)
+design = matrix(0.1, ncol = length(datos), nrow = length(datos), 
+                dimnames = list(names(datos), names(datos)))
+diag(design) = 0
+
+design 
+sgccda.res = block.splsda(X = datos, Y=outcome, ncomp = 10,
+                           design = design)
+
+set.seed(123) # for reproducibility, only when the `cpus' argument is not used
+# this code takes a couple of min to run
+perf.diablo = mixOmics::perf(sgccda.res, validation = 'Mfold', folds = 10, nrepeat = 10)
+
+#perf.diablo  # lists the different outputs
+plot(perf.diablo) 
+
+perf.diablo$choice.ncomp$WeightedVote
+ncomp = perf.diablo$choice.ncomp$WeightedVote["Overall.BER", "centroids.dist"]
+
+sgccda.res = block.splsda(X = datos, Y = outcome, ncomp = ncomp, design = design)
+```
+
+
+```{r}
+plotDiablo(sgccda.res, ncomp = 1)
+
+
+if(!ncomp<2){
+  
+  plotIndiv(sgccda.res, ind.names = FALSE, legend = TRUE, title = 'DIABLO')
+
+}
+
+```
+
+#### relative abundance
+
+```{r}
+outcome <-with(variables_in_bacteria,interaction(GROUP,OBESE))
+
+datos <- list(metabolomics = X.basal,rel_filo =Y.rel.p,rel_genus = Y.rel.g)
+design = matrix(0.1, ncol = length(datos), nrow = length(datos), 
+                dimnames = list(names(datos), names(datos)))
+diag(design) = 0
+
+design 
+
+sgccda.res = block.splsda(X = datos, Y=outcome, ncomp = 10,
+                           design = design)
+set.seed(123) # for reproducibility, only when the `cpus' argument is not used
+# this code takes a couple of min to run
+perf.diablo = mixOmics::perf(sgccda.res, validation = 'Mfold', folds = 10, nrepeat = 10)
+
+#perf.diablo  # lists the different outputs
+plot(perf.diablo) 
+
+perf.diablo$choice.ncomp$WeightedVote
+ncomp = perf.diablo$choice.ncomp$WeightedVote["Overall.BER", "centroids.dist"]
+
+sgccda.res = block.splsda(X = datos, Y = outcome, ncomp = ncomp, design = design)
+```
+
+
+```{r}
+plotDiablo(sgccda.res, ncomp = 1)
+
+
+if(!ncomp<2){
+  
+  plotIndiv(sgccda.res, ind.names = FALSE, legend = TRUE, title = 'DIABLO')
+
+}
+
+```
+
+
+
+
+
+

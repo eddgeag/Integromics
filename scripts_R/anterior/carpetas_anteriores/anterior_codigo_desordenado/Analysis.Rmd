@@ -1,0 +1,2194 @@
+---
+title: Integration of omics and clinical data of the hormonal, metabolic, inflammatory,
+  and oxidative response in the different macronutrients of the diet
+author: "Edmond Geraud"
+subtitle: '`r params$subtitulo`'
+date: '`r format(Sys.Date(),"%e de %B, %Y")`' 
+output:
+  prettydoc::html_pretty:
+    theme: cayman
+    highlight: github
+  html_document:
+    toc: true
+    toc_depth: 2
+header-includes:
+  - \usepackage[english]{babel}
+params:
+  file_IP: Integromics_IPmarkers.xlsx
+  file_metabolome: Integromics_Metabolome.xlsx
+  file_general: Integromics_1.xlsx
+  file_microbiota : integromics_microbiota.xlsx
+  folder.data: ../../datos
+  subtitulo: Statistical Analysis
+geometry: margin=2cm
+---
+
+```{r setup, include=FALSE}
+require(knitr)
+# include this code chunk as-is to set options
+opts_chunk$set(comment = NA, prompt = TRUE, tidy = T, 
+               fig.width = 7, fig.height = 7,echo = TRUE, 
+               message = FALSE, warning = FALSE, cache=TRUE, fig_caption = TRUE)
+Sys.setlocale("LC_TIME", "C")
+```
+
+# Summary of the univariate descrpitve analysis.
+
+## Overall study.
+
+The data comprises 53 subjects, which are divided into 34 females and 19 males. From the 34 females, 18 are non obese and 16 obese. And 10 non obese males and 9 obese males. The 18 non obese females are divided into 9 PCOS and 9 healthy. The 16 obese females are divided further into 8 PCOS and 8 non PCOS.
+
+A sanity check of the study was performed to observed possibly differences between the groups. No differences were found.
+Descriptive numerical tables were performed on each data-set except on the microbiome. Numerical descriptive tables only contain the mean and the standard deviation.
+
+For each numerical variable (all except the ones that describes the groups) their distribution were analyzed as a whole, without taking into account the groups (obese, sex and PCOS).
+
+It has to be mentioned that no correlation between variables on the different data types were performed. Only uni variate statistical analysis on each data set was performed.
+
+Permeability markers, and some clinical biomarkers, were analyzed at basal and postprandial times. The first day of the study corresponds to the glucose oral load, the second to the lipids and the third to the proteins.
+
+1. **Clinical data: ** Comprises 63 variables.  The first variable is the order of the data, the second variable is the sample name, and the next 5 variables belong to sex, group (female, male, PCOS), obese (whether obese or not obese), age and BMI, WC, WHR. And 54 biomarkers. From those 54 biomarkers, there are testosterone, estradiol, its ratio, HOMA-IR, ISI, cholesterol, HDL , LDL, insulin and glucose. Sex steroids, the ratio, HOMA-IR and ISI are only  calculated at basal levels. The other variables are calculated also at postprandial level. Furthemore the levels of all these variables the mean basal value for each day of the study is computed.
+
+2. **Permability Biomarkers:** Apart from the categorical variables, we have sCD14, LBP, zonulin and succinate. Each variable the mean basal value is computed,as well as the basal values for each day and the postprandial stage. Succinate is more like a metabolite, however, it was calculated in other units, and we do not know how to include this metablolite. ( No units are specified on this data set)
+
+3. **Metabolome:** The data includes only the sample and the order. And 261 variables. From these variables, only 37 were actually metabolites. The other variables belong to the mean basal values, the basal values for each day, and the postprandial values for each day.
+
+4.**Microbiome.** Here, we have two sets of data. Reads from the several phylum and the genus. Only 5 subjects could not be able to analyze their faces. We performed a sanity check of the data to observe if this variation in the data affected the study. It did not.
+
+### Clinical data
+
+Body shape variables, like BMI, waist circumference, and waist to hip ratio show bimodal distributions, indicating the differences between obese and non-obese subjects. Age also show a bimodal distribution, indicating two different groups (<25 and >25). No differences in this variables were found regarding PCOS subjects. Boxplots accounting for the interaction were performed.
+
+Due to the huge amount of variables, and the fact that with a simple correlation matrix, the interactions could not be seen, we search in the literature for possible correlation between the variables that we have.
+In general terms, the SHBG, as a whole, interact with the sex steroids (testosterone and estradiol). The free concentration of the steroids decreases as SHBG increases, this hold for testosterone in general. Estradiol show different correlation between groups, with no interaction with SHBG except on males and obese PCOS women with a negative correlation. Positive correlation is observed in obese females controls. The ratio between the two steroids shows no correlation with SHBG in healthy control women. Positive correlation is observed between males. Obese females and PCOS lean patients show negative correlations. Obese PCOS women show positive correlation.
+
+As expected, and in corcodance with the literature, SHBG increases with age. Regarding the correlation with BMI, on healthy control women this correlation is negative, as well as on obese PCOS and obese males. The other subjects show a positive correlation. Similar pattern is observed on WC and WHR.
+
+For the variables hsCRP (C-reactive Protein), HOMA-IR , insulin sensitivity index (ISI) and lipids, similar procedure was adress. Regarding HOMA-IR and ISI, due to the fact that both variables indicate us the resistance of the insulin, only HOMA-IR was correlated with the other variables. (HOMA-IR and ISI are inverse of each other in general terms).
+HsCRP, is higher on obese subjects, but this interaction is only observed on PCOS women as well as fasting concentration of insulin. Fasting glucose was higher between obese females and control females, but no differences were found among the other subjects. HOMA-iR show higher levels on obese subjects, but more specifically on obese PCOS women. 
+
+Triglicerids were higher on obese subjects, being higher on males and PCOS women. Similar pattern was found on cholesterol levels and LDL cholesterol. Opposite pattern was observed on HDL cholesterol.
+
+Regarding the literature, a scatter plot matrix was performed on the basal insulin, glucose, ISI and HOMA-IR variables. As expected, the patterns described in the literature, were found on the data.
+
+
+A positive correlation between insulin, glucose and HOMA-IR levels was found. A negative correlation was found regarding ISI.
+A correlation plot was performed, and according to the literature, the correlations between HDL levels and BMI, hsCRP, HOMA-IR, and triglycerides (TG) were negative. The other variables show a positive correlation. Differences were found when the correlation was performed between groups. 
+
+Regarding hsCRP and BMI, only on obese males this correlation was negative. HsCRP and HOMA-IR, no relationship exists between healthy control women, obese women and obese PCOS women. A negative correlation is found in non-obese PCOS women and a positive correlation is observed between men.
+
+HsCRP and TG, show nagative correlation for women, except on obese PCOS women and males. HsCRP and cholesterol the correlation is negative in women and positive in males.
+
+HDL cholesterol and hsCRP show positve correlation between non-obese PCOS females and obese control females. A negative correlation is observed on the other subjects. 
+LDL cholesterol and hscRP correlation is negative on females and positive on males.
+
+
+**Postprandial levels**
+
+Insulin postprandial levels are higher than basal levels on the first day. Being higher on PCOS women. The protein load day, show similar values at basal time, but on the second day, values were lower. 
+Obese PCOS subjects present a higher concentration of glucose ath the first day. But all subjects present lower values than at the basal stage, but still lower.
+
+Triglycerides show higher values on the lipid load day, with no distinction between groups. Still lower values than at the basal time. 
+On the contrary levels of cholesterol were lower at postprandial levels, but higher in obese PCOS women. Same pattern was observed on LDL cholesterol. And similar pattern but without distinction between groups were observed in HDL cholesterol
+
+
+### Intestinal permeability markers. 
+
+As mentioned above, this data set comprises of four permeability markers and one metabolite. As we did on the clinical biomarkers, firstly we did a quick review of the literature.
+
+CD14 (Cluster differentiation 14), is a protein that detects bacteria in the body by binding a lipopolysacharide *This should be interesting when integrating the data sets*. Also this binding its only possible with the *Lipopolysacharide-binding-protein LBP*. Also recognize other pathogen associated molecular patterns. LBP is important to cell surface pattern recongition such as CD14 and TLR4 (mentioned on the references).
+
+GLP2 (Glucagon-like peptide2) decreases cytokine expression, and is part of the inflammatory response.
+Is reported than Zonulin increases in patients with diabetes mellitus II. 
+
+On the other hand, succinate, as mentioned, is a metabolite, involved in many pathways, activates the inflammatory response trough toll like receptors (mentioned on the main references).
+
+A correlation-scatter matrix plot was performed to observe the relationships among the mean basal values of the variables, BMI included, as is an indicator of diabetes II and inflammation.
+
+BMI, correlates positively with all variables, except on sCD14. 
+SCD14, correlates in a positve manner with LBP and Zonulin, as described in the literature, and negatively with GLP2 and succinate. 
+
+The correlation of LBP with GLP2, zonulin and succinate is positive. 
+There is no relationship between GLP2 and zonulin, but a positive correlation exist between succinate. Finally succinate and zonulin present a barely positive correlation.
+
+
+**Comparison between basal and postpranidal levels.**
+
+All variables on this data set, show higher values at basal level than at postprandial time
+SCD14,  at basal levels is higher on non-obese subjects. Specially on healthy control women. No distinction between the other groups is found regarding non-obese subjects. Obese PCOS women show increased levels of this IP, but lower than healthy control women. At postprandial levels, similar values are found across all subjects. But on the second and third day, on non-obese subjects males and PCOS women show higher values. Obese males at the first day show the highest values at postprandial levels.
+
+LBP mean basal values are higher on obese subjects, specifically on PCOS obese women. And no distinction between groups are observed at postprandial levels, GLP values are higher at basal levels on obese PCOS women and obese males. Between control women no distinction is observed. At postprandial levels,  higher values are observed on the second and third day. With no distinction between non-obese subjects. Obese control subjects show higher values than obese PCOS women.
+
+Zonullin mean basal levels show no distinction between groups. At postprandial levels, on the second day, between obese obese subjects, control females have the highest values followed by PCOS and males.
+
+Succinate levels are higher on obese subjects, but remarkably higher on obese women with PCOS. At postprandial time, the first day, levels of this metabolite are higher. Being higher on non obese males and obese PCOS women. On the other days no distinction is found between groups
+
+### Metabolome
+
+This data set was analyzed in a different way. Instead of referring at the literature, because, each metabolite is associate with many pathways, and the fact that most of them are aminoacids, we performed a correlation matrix plot. From this plot, we infer that the correlations, whether positive or negative, may be due to the physical/chemical properties. 
+
+For instance, Oxoisocaproic, Leucine, Isoleucine and Valine are positive correlated. These metabolites have in common that the Oxoisocaproic acid, is derived from the leucine, isoleucine, and valine. And leucine, isoleucine and valine are non-polar.
+
+Normal and non-normal, i.e skewed distributions were found across all mean basal values of metabolites.
+For each metabolite, descriptive analysis of box plot was performed. In general postprandial levels of each metabolite were lower than basal values.
+
+### Microbiome
+
+Gut microbiome was extracted and analyzed via faces of the subjects. We have the reads of the phylum and the genus of the microbiome. They analyzed 282 OTUs ( operational taxonomic units) 69 of which they were not capable of identify at genus level also at phylum data. Both unknown genus and phylum coded as ud- were discarded for the analysis. Furthermore, there were reads on both phylum and genus were the reads across all samples were zero. Those were also excluded from the analysis.
+The analysis was performed via the `phyloseq` package from bioconductor. Both data-sets were processed to obtain a `phyloseq` object. 
+
+From the phylum data, one can observe (not all) the most abundant bacteria, for example:  abundance of Firmicutes is similar between obese and non-obese subjects. On obese males this abundance is higher, as well as on obese PCOS women. Less abundance is observed on obese control females. Bacteroidetes are the following phylum with higher abundance. Being higher on
+non-obese subjects. After that, the following phylum observed is Actinobacteria, with similar abundance on obese and non-obese subjects. Proteobacteria is higher on obese subjects.
+
+On the other hand, regarding the genus, it cannot be observed due to the high types of genera. But in general, bacteria with less abundance is observed on obese control females, followed by healthy control females. PCOS women and males have similar abundance. Being higher on PCOS women.
+
+
+
+
+# Questions to adress:
+
+1. I think, it should be wise to obtain from the literature the normal values by sex of the several variables, specially for the clinical ones. But I think this is too much.
+
+2. The three times measured, for instance, 0-60-120 minutes,  are not recorded on the data. O belongs to basal levels, and 60-120 to postprandial levels. However, on the permeability markers, only two times were measured, but this is not reflected on the data.
+
+3. What are we doing to do with succinate ?
+
+4. On this analysis there are not references. I am aware of that.
+
+5. It should be wise to compute the mean values at postprandial levels ? However, each day describe how the variable behaves, for this reason I did not do do it.
+
+6. It is compulsory to address the data in a multivariate way. I think I lost a lot of information. Specially on metabolites and the microbiome.
+
+7. Also, it is compulsory to address correlation between data types. But for this analysis I did not do it.
+
+8. I need a little help to address the microbiome dataset. An effort has been made to merged both phylum and genus. However, this merge process is not well done. Because, phylum is paired likewise with the genus. Therefore, one genus belongs to one phylum. And this is not coherent. Furthermore, in order to perform tree analysis, it is needed the sequences.
+Help is required, in order to perform a proper descriptive analysis on gut microbiome data. 
+Is `phyloseq` adequate ? And for further analysis, both phylum and genus must be correlated or associated. 
+Question: beta diversity and alpha diversity, refers to genus and phylum ? 
+
+9. Regarding the microbiome, for further analysis, the data, which are raw reads, must be transformed and normalized. Any suggestion ?
+
+
+
+
+
+
+# Prepare libraries.
+
+In order to have a reproducible research, the following chunk, install the packages if they are not installed and then are loaded into the session.
+
+```{r libraries}
+
+list.of.packages <- c("xlsx","kableExtra","dplyr","ggplot2","egg","cowplot","patchwork","gridExtra","UsingR","car","lattice","ggpubr","ggbreak","GGally","reshape2","ggcorrplot","corrplot")
+new.packages <- list.of.packages[!(list.of.packages %in% installed.packages()[,"Package"])] ## check for packages not installed 
+if(length(new.packages)) install.packages(new.packages) ## install packages if necessary
+res<-unlist(lapply(list.of.packages, require,character.only = T)) ## load packages needed for the session
+if(any(res==F)){
+  list.of.packages[which(res==F)]  ## show those package if you have troubles to install.
+}
+
+list.of.bioc.packages <- c("phyloseq")
+new.packages.bioc <- list.of.packages[!(list.of.bioc.packages %in% installed.packages()[,"Package"])]
+if(length(new.packages.bioc)) BiocManager::install(new.packages.bioc)
+res.bioc <- unlist(lapply(list.of.bioc.packages, require,character.only = T)) 
+if(any(res.bioc==F)){
+  list.of.packages[which(res.bioc==F)]  ## show those package if you have troubles to install.
+}
+```
+
+
+## Description of the clinical data
+
+
+The meaning of the 61 variables are:
+
+| Variable 	| Description 	|
+|:---:	|:---:	|
+| Orden 	| Order of the subjects 	|
+| Paciente 	| Women contol (M),PCOS women (P),Male (V), d (Not obese), O (Obese), GLP (challenge macronutrients: glucose, lipids, proteins) 	|
+|  	<br>SEX 	| 0 Women, 2 Male 	|
+|  	<br>GROUP 	| 0 Women Control, 1 PCOS, 2 Male 	|
+|  	<br>OBESE 	| 0 Not obese, 1 Obese 	|
+| EDAD 	| Age 	|
+| BMI 	| Body Mass Index 	|
+| WC 	| Waist circumference 	|
+| WHR 	| Waist to hip ratio 	|
+| SHBG 	| Sex hormone-binding protein 	|
+| TOTAL_TEST 	| Total testosterone (T) 	|
+| FREE_TEST 	| Free testosterone 	|
+| Total_ESTR 	| Total estradiol (E2) 	|
+| Free_ESTRA 	| Free estradiol 	|
+| RatioFreeTE2 	| Free T/FreeE2 ratio 	|
+| hsCRP 	| High sensitivity C-reactive protein 	|
+| InsulinaBasal_mean 	| Mean basal insluin 	|
+| GlucosaBasal_mean 	| Mean basal glucose 	|
+| SOG_ISI 	| Insulin sensitivity index (it is only calculated on the challenge oralglucose day) 	|
+| HOMAIRmean 	| Homeostasis model assessment of insulin resistance (mean of the three days) 	|
+| TGmean 	| Triglicerids (Basal. mean of the three challenges) 	|
+| COLmean 	| Total Cholesterol (Basal. mean of the three challenges) 	|
+| HDLmean 	| HDL Cholesterol (Basal. mean of the three challenges) 	|
+| LDLmean 	| LDL Cholesterol (Basal. mean of the three challenges) 	|
+| SOG_INS_B 	| Basal insulin when challenge oral glucose day 	|
+| SOL_INS_B 	| Basal insulin when challenge oral lipid day 	|
+| SOP_INS_B 	| Basal insulin when challenge oral protein day 	|
+| SOG_GLC_B 	| Basal glucose when challenge oral glucose day 	|
+| SOL_GLC_B 	| Basal glucose when challenge oral lipid day 	|
+| SOP_GLC_B 	| Basal glucose when challenge oral protein day 	|
+| SOG_HOMAIR 	| HOMAIR Glucose Oral Challenge day 	|
+| SOL_HOMAIR 	| HOMAIR Lipid Oral Challenge day 	|
+| SOP_HOMAIR 	| HOMAIR Protein Oral Challenge day 	|
+| SOG_INS_AUC 	| Area Under the Curve of the insulin on Glucose Oral Challenge 	|
+| SOL_INS_AUC 	| Area Under the Curve of the insulin on Lipids Oral Challenge 	|
+| SOP_INS_AUC 	| Area Under the Curve of the insulin on Proteins Oral Challenge 	|
+| SOG_GLU_AUC 	| Area Under the Curve of the Glucose on Glucose Oral Challenge 	|
+| SOL_GLU_AUC 	| Area Under the Curve of the Glucose on Lipids Oral Challenge 	|
+| SOP_GLU_AUC 	| Area Under the Curve of the Glucose on ProteinsOral Challenge 	|
+| SOG_TG_0 	| Triglicerids at basal level on Glucose Oral Challenge 	|
+| SOL_TG_0 	| Triglicerids at basal level on Lipid Oral Challenge 	|
+| SOP_TG_0 	| Triglicerids at basal level on Protein Oral Challenge 	|
+| SOGAUCTG 	| Triglicerids Area Under the Curve Oral Glucose Challenge 	|
+| SOLAUCTG 	| Triglicerids Area Under the Curve Oral Lipids Challenge 	|
+| SOPAUCTG 	| Triglicerids Area Under the Curve Oral Proteins Challenge 	|
+| SOG_COL_0 	| Cholesterol at basal level on Glucose Oral Challenge 	|
+| SOL_COL_0 	| Cholesterol basal level on Lipid Oral Challenge 	|
+| SOP_COL_0 	| Cholesterol at basal level on Protein Oral Challenge 	|
+| SOGAUCCOL 	| Cholesterol Area Under the Curve Oral Glucose Challenge 	|
+| SOLAUCCOL 	| Cholesterol Area Under the Curve Oral Lipids Challenge 	|
+| SOPAUCCOL 	| HDL Cholesterol Area Under the Curve Oral Proteins Challenge 	|
+| SOG_HDL_0 	| HDL Cholesterol at basal level on Glucose Oral Challenge 	|
+| SOL_HDL_0 	| HDL Cholesterol basal level on Lipid Oral Challenge 	|
+| SOP_HDL_0 	| HDL Cholesterol at basal level on Protein Oral Challenge 	|
+| SOGAUCHDL 	| HDLCholesterol Area Under the Curve Oral Glucose Challenge 	|
+| SOLAUCHDL 	| HDL Cholesterol Area Under the Curve Oral Lipids Challenge 	|
+| SOPAUCHDL 	| HDL Cholesterol Area Under the Curve Oral Proteins Challenge 	|
+| SOG_LDL_0 	| LDL Cholesterol at basal level on Glucose Oral Challenge 	|
+| SOL_LDL_0 	| LDL Cholesterol basal level on Lipid Oral Challenge 	|
+| SOP_LDL_0 	| LDL Cholesterol at basal level on Protein Oral Challenge 	|
+| SOGAUCLDL 	| LDL Cholesterol Area Under the Curve Oral Glucose Challenge 	|
+| SOLAUCLDL 	| LDL Cholesterol Area Under the Curve Oral Lipids Challenge 	|
+| SOPAUCLDL 	| LDL Cholesterol Area Under the Curve Oral Proteins Challenge 	|
+
+
+In general SOG means Glucose Oral Challenge, SOL: Lipid Oral challenge, and SOP Protein Oral challenge.
+
+It has to be mentioned that SOG and SOP challenges were takes at 3 times: 0, 60 and 120 min. But SOL, the times differ: 0,120,240, because the absorption of lipids by the intestine is slower. 
+
+
+
+
+### Univariate descriptive analysis of clinical variables
+
+First of all we'll read all data. The route of the data is in the yaml header. The data is in xlsx format. 
+```{r clnical_Data}
+general<-file.path(params$folder.data,file=params$file_general) ## file path of the data
+general_data<-read.xlsx(general,sheetIndex = 1) ## data
+general_data.comments <- read.xlsx(general,sheetIndex = 2) ## comments about the data
+general_data.descripcion<-read.xlsx(general,sheetIndex = 3) ## description of the data.
+```
+
+```{r}
+str(general_data) ## show general information of the data
+nrow(general_data) ## number of observations
+ncol(general_data) ## number of variables
+```
+
+
+We have 53 samples and 61 variables. The first two variables are the index of the patients, and the second column is the patient identification. From the `str` function we can observe that the categorical variables are as character. Thus we have to change to factor variables. Furthermore, a recodification of the values is needed as follows:
+
+1. `SEX` variable is coded as 0 and 2,  being females and males respectively, recoded as `Female` and `Male`
+2. `OBESE` variable is coded as 0 and 1, being non-obese subjects and obese subjects respectively, recoded as `No obese`and `obese`
+3. `GROUP` variable is coded as 0,1,and 2, being females, women with PCOS and males, recoded as `Female`, `PCOS` and `Male` respectively.
+
+
+```{r process_data}
+## recode data as above
+general_data$SEX <- factor(general_data$SEX,levels=c(0,2),labels = c("Female","Male"))
+general_data$OBESE <- factor(general_data$OBESE,levels=c(0,1),labels = c("No Obese","Obese"))
+general_data$GROUP <- factor(general_data$GROUP,levels=c(0,1,2),labels = c("Female","PCOS","Male"))
+str(general_data)
+
+```
+
+Firstly we perform tables across `SEX,OBESE` and `GROUP` variables, to keep in mind the main structure of the study and to perform the next descriptive table.
+```{r intialtables}
+(sexo<-table(general_data$SEX))
+
+(sexo.obesos<-table(general_data$SEX,general_data$OBESE))
+
+(subgrupos<-table(general_data$GROUP,general_data$OBESE))
+```
+
+```{r plot1, fig.align='center'}
+ggplot(data = general_data,aes(x=GROUP,y=OBESE,fill=OBESE)) + geom_bar(stat = "identity",color="black",position = position_dodge())+theme_minimal()
+
+```
+
+
+**Compute a numerical descriptive table:**. 
+In order to do so, firstly we define a function called `resumen` that computes the sample mean and the sample standard deviation. For visualization purposes, we are only to show those statistics. Those statistics will allow us to identify the ranges of the variables. If we compute more statistics the table will not help due to its huge dimension.
+
+```{r}
+general_data.variables <- general_data[,3:ncol(general_data)] ## remove samples names and order from the summary
+
+resumen<-function(x){c(round(mean(x),4),round(sd(x),4))} # Function that help us to summarize the data in mean and sd values
+
+
+general_data.sum<-general_data.variables %>%group_by(GROUP,OBESE) %>% 
+  summarise(across(where(is.numeric),resumen),n=n()) # Group the data by variable GROUP and OBESE
+
+d.f<-as.data.frame(t(general_data.sum))[c(nrow(t(general_data.sum)),1:(nrow(t(general_data.sum))-1)),] # transpose the data for visualization purposes and get rid off the N value for same purposes
+d.f_final <- d.f[-c(1:3),] # remove categorical variables.
+nombre_variables<- c("Age (years)",
+                         "BMI",
+                         "Waist circumference (cm)",
+                         "Waist to hip ratio",
+                         "SHBG (nmlol/L)",
+                         "Total testosterone (nmol/L)",
+                         "Free testosterone  (pmol/L)",
+                         "Total estradiol (nmol/L)",
+                         "Free estradiol (pmol/L)",
+                         "Ratio free T/E2",
+                         "hsCRP (nnmol/L)",
+                         "Mean fasting insulin (pmol/L)",
+                         "Mean fasting glucose (mmol/L)",
+                         "Insulin sensitivity index",
+                         "HOMA-IR",
+                         "Triglicerids (mg/dL)",
+                         "Cholesterol (mg/dL)",
+                         "HDL cholesterol (mg/dL)",
+                         "LDL cholesterol (mg/dL)",
+                         "Basal insulin: Glucose day (pmol/L)",
+                         "Basal insulin: Lipid day (pmol/L)" ,
+                         "Basal insulin: Protein day (pmol/L)",
+                         "Basal glucose: Glucose day (mmol/L)",
+                         "Basal glucose: Lipid day (mmol/L)",
+                         "Basal glucose: Protein day (mmol/L)",
+                         "HOMA-IR: Glucose day",
+                         "HOMA-IR: Lipid day",
+                         "HOMA-IR: Protein day",
+                         "Insulin AUC: Glucose day (pmol/L)",
+                         "Insulin AUC: Lipid day (pmol/L)",
+                         "Insulin AUC: Protein day (pmol/L)",
+                         "Glucose AUC: Glucose day (mmol/L)",
+                         "Glucose AUC: Lipid day (mmol/L)",
+                         "Glucose AUC: Protein day (mmol/L)",
+                         "Basal triglicerids: Glucose day (mg/dL)",
+                         "Basal triglicerids: Lipid day (mg/dL)",
+                         "Basal triglicerids: Protein day (mg/dL)",
+                         "Triglicerids AUC: Glucose day (mg/dL)",
+                         "Triglicerids AUC: Lipid day (mg/dL)",
+                         "Triglicerids AUC: Protein day (mg/dL)",
+                         "Basal cholesterol: Glucose day (mg/dL)",
+                         "Basal cholesterol: Lipid day (mg/dL)",
+                         "Basal cholesterol: Protein day (mg/dL)",
+                         "Cholesterol AUC: Glucose day (mg/dL)",
+                         "Cholesterol AUC: Lipid day (mg/dL)",
+                         "Cholesterol AUC: Protein day (mg/dL)",
+                         "Basal HDL: Glucose day (mg/dL)",
+                         "Basal HDL: Lipid day (mg/dL)",
+                         "Basal HDL: Protein day (mg/dL)",
+                         "HDL AUC: Glucose day (mg/dL)",
+                         "HDL AUC: Lipid day (mg/dL)",
+                         "HDL AUC: Protein day (mg/dL)",
+                         "Basal LDL: Glucose day (mg/dL)",
+                         "Basal LDL: Lipid day (mg/dL)",
+                         "Basal LDL: Protein day (mg/dL)",
+                         "LDL AUC: Glucose day (mg/dL)",
+                         "LDL AUC: Lipid day (mg/dL)",
+                         "LDL AUC: Protein day (mg/dL)")
+
+variable_code <- colnames(general_data)[6:ncol(general_data)]
+rownames(d.f_final) <-nombre_variables
+N<-as.character(d.f_final[1,])
+colnames(d.f_final) <- rep(c("Mean","SD"),6)
+## ATTENION! Because assining left hand expression is 
+## complicated, just for one table, be careful if we put another data-set
+## For showing the number of subjects by group
+d.f_final$Code <- variable_code
+kbl(d.f_final) %>%
+  kable_classic() %>%
+    add_header_above(c(" "=1,
+                      "9"= 2,
+                      "8"= 2,
+                      "9"= 2,
+                      "8"= 2,
+                      "10"= 2,
+                      "9"= 2,
+                      " "=1
+ )) %>%
+      add_header_above(c( " "=1,
+                     "No Obese" = 2,
+                     "Obese" =2,
+                     "No Obese" = 2,
+                     "Obese" =2,
+                     "No Obese" = 2,
+                     "Obese" =2 ,
+                     " "=1)) %>%
+  add_header_above(c(" "=1,
+                      "Control Females" = 4, 
+                     "PCOS"=4,
+                     "Control Males"=4,
+                     " "=1))
+
+
+```
+**NOTE: Though this a descriptive summary, we provide some test just to be sure the study is well desinged. **
+
+We can check with a chisq-test if there are differences in the groups, i.e differences between obese, non-obese, sex, and patients. In total we have 6 subgroups.
+
+```{r testchisq}
+subgrupos
+chisq.test(subgrupos)
+```
+There is no relationship between categorical variables.
+
+
+
+
+#### Descriptive statistics: Age and body measures.
+
+Before exploring the biomarkers, firstly we are going to describe age and body  measures, that is:
+
+1. Age
+2. BMI: Body mass Index. $kg/m^2$
+3. WC: Waist circumference $cm$
+4. WHR: Waist to hip ratio. 
+
+#### Age and body measure variables.
+
+In order to speed up the process of plotting, given that we have 58 numerical data, and we need to plot everything, a small script, will store in a list the histogram of all variables as whole, and boxplots by `OBESE` and `GROUP` and their interaction.
+
+```{r plotall}
+## Firstly store all the units for each variable.
+# unidades <- c("years",#age
+#               "kg/m2",#bmi
+#               "cm",#WC
+#               " ",#WHR
+#               "nmol/L",#shbg
+#               "nmol/L",#total testosterone
+#               "pmol/L",#free T
+#               "pmol/L",#t E2
+#               "pmol/L",# F E2
+#               " ",#Ratio T/E2
+#               "nmol/L",#C
+#               "pmol/L",#insulina
+#               "mmol/L",# glucosa
+#               " ",# ISI
+#               " ", #HOMAIR
+#               "mg/dL",#TG
+#               "mg/dL",#COL
+#               "mg/dL",#HDL
+#               "mg/dL",#LDL
+#               "pmol/L",#insulina
+#               "pmol/L",#insulina
+#               "pmol/L",#insulina
+#               "mmol/L",# glucosa
+#               "mmol/L",# glucosa
+#               "mmol/L",# glucosa
+#               " ",
+#               " ",
+#               " ",
+#               "pmol/L",
+#               "pmol/L",
+#               "pmol/L",
+#               "mmol/L",
+#               "mmol/L",
+#               "mmol/L",
+#               rep("mg/dL",24))
+
+
+variables <- colnames(general_data)[6:ncol(general_data)] # store in variables object all numerical variables
+## Save as object the categorical variables names, in order to fo a for loop
+GROUP="GROUP"
+OBESE="OBESE"
+SEX="SEX"
+
+hist.list<-list() ## initizalize a list of the histogram
+## plot all histograms via loop
+for(i in 1:length(variables)){
+  variable <- variables[i] ## name of the variable to plot
+  titulo <- nombre_variables[i] # title of the varialbe
+  
+  breaks <- pretty(range(general_data[,variable]), 
+                   n = nclass.Sturges(general_data[,variable]), min.n = 1)# make pretty histogram by appropiate bins
+  bwidth <- breaks[2]-breaks[1] ## bin width
+
+  ## plot
+  hist.list[[i]]<-ggplot(general_data,aes_string(x=variable))+geom_histogram(aes(y=..density..),
+                                                        binwidth =bwidth,colour="black")+geom_density(alpha=.2, fill="lightblue")+xlab(titulo)+ylab("")
+
+
+}
+
+
+bp.interaction <- list() ## intialize boxplot list interaction
+for(i in 1:length(variables)){
+  titulo <- nombre_variables[i]
+  variable <- variables[i]
+  bp.interaction[[i]]<-ggplot(general_data,aes_string(x=GROUP,y=variable,interaction(GROUP),fill=OBESE))+geom_boxplot()+ylab(titulo)
+
+}
+
+### intialize boxplot for obese and non obese subjects
+bp.obese <- list()
+for(i in 1:length(variables)){
+  titulo <- nombre_variables[i]
+  variable <- variables[i]
+  bp.obese[[i]]<-ggplot(general_data,aes_string(x=SEX,y=variable,fill=OBESE))+geom_boxplot()+ylab(titulo)
+
+}
+### intialize boxplot for females, males and PCOS groups.
+bp.group <- list()
+for(i in 1:length(variables)){
+  titulo <- nombre_variables[i]
+  variable <- variables[i]
+  bp.group[[i]]<-ggplot(general_data,aes_string(x=SEX,y=variable,fill=GROUP))+geom_boxplot()+ylab(titulo)
+
+}
+
+
+```
+
+For those variables, i.e age, WC, WHR and BMi, the distribution of the variables without grouping is the following.
+
+
+
+```{r plothistfirst4}
+do.call(grid.arrange,hist.list[1:4])
+```
+
+For the age of the subjects, it seems to be a bimodal distribution. It looks like there are two age groups, the ones bellow 25 years and the ones above 25 years. Clearly we have also a bimodal distribution for BMI, and less clearly for Waist Circumference. This is obvius because we are dealing with obese and non-obese subjects. Interestingly, the waist to hip ratio, is not bimodal.
+
+Though for now, we are doing just a descriptive analysis, just for sanity check, we perform anova analysis on age. Though the distribution of age seems to be bimodal, the Shapiro test tells us that the data follows a normal distribution. This maybe due to the law of the large numbers.
+```{r chunksanitycheck}
+shapiro.test(general_data$EDAD)
+summary(with(general_data,aov(EDAD~GROUP)))
+```
+As expected, there is no difference between groups. This and the chisq-test performed above will be the only test on the descriptive analysis. 
+
+Regarding the boxplots of Age, BMI, WC, and WHR, we do not observe differences between groups in age. For the rest of variables of body shape, clearly there is a difference, and it is obvious regarding the study design.
+
+```{r boxplotsInteraction1}
+
+do.call(grid.arrange,c(bp.interaction[1:4]))
+```
+
+
+
+### Description of biohemical biomarkers.
+
+#### SHBG, Testosterone, Estradiol and their relationship with age, BMI, WC and WHR.
+*Firstly let's describe some variables and how do they act in the body*
+
+The Sex Hormone Binding Globulin (`SHBG`) is a protein made by the liver. It binds tightly to **androgens** and **estradiol**.  SHBG controls the amount of testosterone that your body tissues can use. The level of SHBG in the blood changes because of factors such as **sex and age and obesity** among other factors. Androgen deficiency. Low levels of the hormone androgen can cause general weakness and sexual problems in men. In women, androgen may affect thinking and bone strength.*It may also prevent the ovaries from working the way they should*.  
+
+Due to the fact that `SHBG` is linked with sex steroids, sex, obesity and age; we are going to plot the globulin, total and free testosterone and estradiol. And we are also going to describe the relationships between age, BMI, WHR and WC. BUt firstly, let's inspect the distribution, of the protein and the sex steroids. 
+```{r chunk7}
+do.call(grid.arrange,hist.list[5:10])
+```
+
+At first sight, we observe that the variables plotted doesn't follow a normal distribution. Instead, all of them appear to follow a skewed right distribution. This could be due to the different groups. And the free sex steroids, more than skewed distributions seems to follow a bimodal distribution.
+
+Secondly, let's inspect the variables for possible patterns between obese subjects.
+
+```{r chunk8}
+do.call(grid.arrange,bp.interaction[5:10])
+do.call(grid.arrange,bp.obese[5:10])
+do.call(grid.arrange,bp.group[5:10])
+
+
+lm.TT<-ggplot(general_data,aes(SHBG, TOTAL_TEST))+ geom_smooth(method=lm,formula = y~x,se=T)+geom_point(size=3)+  stat_cor(aes(label = ..r.label..), color = "red", geom = "label")+ylab("Total Testosterone")
+
+lm.TT+facet_wrap(.~ OBESE+GROUP)
+lm.FT<-ggplot(general_data,aes(SHBG, FREE_TEST))+ geom_smooth(method=lm,formula = y~x,se=T)+geom_point(size=3)+  stat_cor(aes(label = ..r.label..), color = "red", geom = "label")+ylab("Free Testosterone")
+
+lm.FT+facet_wrap(.~ OBESE+GROUP)
+# 
+lm.TE2<-ggplot(general_data,aes(SHBG, Total_ESTR))+ geom_smooth(method=lm,formula = y~x,se=T)+geom_point(size=3)+  stat_cor(aes(label = ..r.label..), color = "red", geom = "label")+ylab("Total Estradiol")
+
+lm.TE2+facet_wrap(.~ OBESE+GROUP)
+
+lm.freeE2<-ggplot(general_data,aes(SHBG, Free_ESTRA))+ geom_smooth(method=lm,formula = y~x,se=T)+geom_point(size=3)+  stat_cor(aes(label = ..r.label..), color = "red", geom = "label")+ylab("Free Estradiol")
+
+lm.freeE2+facet_wrap(.~ OBESE+GROUP)
+
+lm.ratio<-ggplot(general_data,aes(SHBG, RatioFreeTE2))+ geom_smooth(method=lm,formula = y~x,se=T)+geom_point(size=3)+  stat_cor(aes(label = ..r.label..), color = "red", geom = "label")+ylab("Ratio Free Testosterone-E2")
+
+lm.ratio+facet_wrap(.~ OBESE+GROUP)
+
+lm.age <- ggplot(general_data,aes(EDAD,SHBG))+ geom_smooth(method=lm,formula = y~x,se=T)+geom_point(size=3)+  stat_cor(aes(label = ..r.label..), color = "red", geom = "label")+ylab("SHBG");
+lm.age+facet_wrap(.~ OBESE+GROUP)
+
+lm.bmi <- ggplot(general_data,aes(BMI,SHBG))+ geom_smooth(method=lm,formula = y~x,se=T)+geom_point(size=3)+  stat_cor(aes(label = ..r.label..), color = "red", geom = "label")+ylab("SHBG");
+lm.bmi+facet_wrap(.~ OBESE+GROUP)
+
+lm.WC <- ggplot(general_data,aes(WC,SHBG))+ geom_smooth(method=lm,formula = y~x,se=T)+geom_point(size=3)+  stat_cor(aes(label = ..r.label..), color = "red", geom = "label")+ylab("SHBG");
+lm.WC+facet_wrap(.~ OBESE+GROUP)
+
+lm.WHR <- ggplot(general_data,aes(WHR,SHBG))+ geom_smooth(method=lm,formula = y~x,se=T)+geom_point(size=3)+  stat_cor(aes(label = ..r.label..), color = "red", geom = "label")+ylab("SHBG");
+lm.WHR+facet_wrap(.~ OBESE+GROUP)
+
+```
+
+The SHBG is a protein that binds with sex hormones. This means that when SHBG increases, the free sex steroids diminishes because they are bind to the globulin, but the total sex steroids, augments. Therefore for health subjects and non-obese we expect to have a higher concentration of E2 in women and lower in men. The contrary happens with testosterone. On obese subjects, the SHBG, have lower levels than non-obese. In obese women, tent to have slightly levels of total testosterone, but it is barley appreciable, than non-obese women. Obese men, have lower levels of total testosterone than non-obese men. Free testosterone, has the same behavior in women. But in men, free testosterone, is higher in obese than non-obese. PCOS women, have similar values of SHBG than control women and higher concentration of testosterone levels. 
+
+The SHBG is higher in women independently if they have PCOS or not. Regarding E2, the concentration is higher in obese subjects than non-obese subjects. And higher in women irrespective if they have PCOS than men. E2 have lower concentration in PCOS women than control women. 
+
+The ratio of both free sex steroids is higher in non-obese subjects, and higher in men. But it is not distinguishable between obese and non-obese PCOS women.
+
+As expected, SHBG increases with age, being this correlation positive, the highest in non-obese women with PCOS, followed by obese men, non-obese women, obese women, PCOS obese women, and almost without correlation in healthy men.
+
+Regarding BMI, and WC the data shows a positive correlation with SHBG in healthy men, obese women, and non-obese PCOS women. On the other hand, a negative correlation is found in healthy women, obese PCOS women and obese men. WHR correlated with SHGB follows a similar pattern between subjects but not on healthy men, in which this correlation becomes negative, due to the men and women body shape relationships.
+
+#### hsCRP, HOMA-IR, ISI, insulin, glucose, lipds and their relationship.
+
+
+
+`hsCRP` Is a blood test that measures the abundance of C-Reactive Protein (CRP), which is an annular pentameric protein found in blood plasma, whose concentration rise in response of inflammation. It binds to **lysophosphatidylcholine** expressed on the *surface* of dead or dying cells and some types of **bacteria**, in order to activate the complement system. Synthesized by the liver, in response for *interleukin-6 released by macrophagues,T cells and fat cells*. CRP binds to to the **phosphocholine**. Inflammatory conditions also produces **cytokines** that trigger its synthesis. High concentration of this protein is associated with metabolic inflammation: metabolic pathways that cause arteriosclerosis and type II diabetes mellitus. Normal levels of this protein increases with age. Furthermore, obesity is linked with inflammation pathways **REFERENCE!!** and recent research suggest that patients.with elevated basal levels of CRP are at an increased risk of diabetes,and cardiovascular diseases. hs-CRP levels may not per se be associated with PCOS, rather can be related to fat mass in this subset of subjects. Also high levels of this protein are correlated with hyperinsulinaemia. 
+
+HOMA, the homeostatic model assessment, is method used to quantify insulin resistance (**HOMA-IR**) and beta-cell function. The model describes glucose regulation as feedback loop. It is calculated as $HOMA-IR = \frac{Glucose \times Insulin}{22.5}$. 
+
+Insulin sensitivity index, is also a method for measuring insulin resistance. It is calculated as $\frac{1}{log(insulin_{fasting}[\mu U/mL])+log(glucose_{fasting} [mg/dL])}$. `ISI` is the inverse of the insulin resistance (IR).
+
+As we did above with the sex steroids, firstly let's inspect the distribution:
+
+```{r chunk9}
+do.call(grid.arrange,hist.list[11:16])
+do.call(grid.arrange,hist.list[17:19])
+```
+
+It is observed that almost all variables plotted here are right skewed, unless HDL, LDL cholesterol, and mean fasting glucose. 
+
+
+
+```{r chunk10}
+do.call(grid.arrange,bp.interaction[11:16])
+do.call(grid.arrange,bp.interaction[17:19])
+```
+Regarding the mean values of basal insulin, there is higher concentration of this protein in obese subjects than non-obese. Furthermore, there are also high basal levels of glucose on obese subjects in comparison with non-obese. However, at first sight this difference in male is not observable.
+
+hsCRP, is higher in obese women in general but there is no difference in men. Meanwhile the ISI is higher in non-obese subjects, the HOMA-IR model gives high values  for obese subjects in general as well as triglycerides, LDL and Cholesterol. The HDL on the contrary show lower levels in obese subjects and higher levels in non-obese subjects. 
+
+Regarding relationships between these variables; firstly, let's see de relationships between HOMA-IR, ISI, glucose and insulin between all subjects.
+
+```{r chunk11}
+lowerFn <- function(data, mapping, method = "lm", ...) {
+  p <- ggplot(data = data, mapping = mapping) +
+    geom_point(colour = "blue") +
+    geom_smooth(method = method, color = "red", ...)
+  p
+}
+
+ggpairs(
+  general_data[,17:20], lower = list(continuous = wrap(lowerFn, method = "lm")),
+  diag = list(continuous = wrap("barDiag", colour = "blue")),
+  upper = list(continuous = wrap("cor", size = 5))
+)
+```
+Insulin and glucose show a positive correlation tough not significance, but this relationship is well known. Furhtermore, we have to take into account that we are measuring all subjects.
+
+Given the definition of HOMA-IR and ISI, it is obvious that glucose-HOMA-IR and insulin-HOMA-IR correlation are positive. And negative respect to ISI. And given the fact that HOMA-IR is proportional to glucose and insulin and ISI is inversely proportional, it is logical that this correlation is negative. 
+
+In order to observe further relationships, we are going to use HOMA-IR model.
+
+Now we are going to observe the relationship as a whole of hsCRP, HOMAIR, age, BMI. In other plot we are going to visualize the relationship between hsCRP and lipids.
+
+```{r chunk12}
+corr_1 <- cor(general_data[,c(6,7,16,20:24)])
+ggcorrplot(corr_1,lab=T) ## correlation plot
+```
+
+The following variables: BMI, hsCRP and HOMA-IR all of them correlates positively with each other. 
+
+```{r chink13}
+lm.hcrpbmi <- ggplot(general_data,aes(hsCRP,BMI))+ geom_smooth(method=lm,formula = y~x,se=T)+geom_point(size=3)+  stat_cor(aes(label = ..r.label..), color = "red", geom = "label")+ylab("BMI kg/m2");
+lm.hcrpbmi+facet_wrap(.~ OBESE+GROUP)
+
+lm.hcrpwc <- ggplot(general_data,aes(hsCRP,WC))+ geom_smooth(method=lm,formula = y~x,se=T)+geom_point(size=3)+  stat_cor(aes(label = ..r.label..), color = "red", geom = "label")+ylab("WC cm");
+lm.hcrpwc+facet_wrap(.~ OBESE+GROUP)
+
+lm.hcrpwhr <- ggplot(general_data,aes(hsCRP,WHR))+ geom_smooth(method=lm,formula = y~x,se=T)+geom_point(size=3)+  stat_cor(aes(label = ..r.label..), color = "red", geom = "label")+ylab("WHR");
+lm.hcrpwhr+facet_wrap(.~ OBESE+GROUP)
+```
+As it said by the literature, this relationship it is not related with PCOS, but rather with obesity: the data tells us in the relationship between BMI and this protein is positively correlated in all groups but not on obese males. Regarding WC, all subjects present a positive correlation likewise WHR.
+
+```{r}
+lm.homair <- ggplot(general_data,aes(hsCRP,HOMAIRmean))+ geom_smooth(method=lm,formula = y~x,se=T)+geom_point(size=3)+  stat_cor(aes(label = ..r.label..), color = "red", geom = "label")+ylab("HOMA-IR");
+lm.homair+facet_wrap(.~ OBESE+GROUP)
+
+```
+
+Regarding `hsCRP` variable and its correlation with HOMA-IR model, this variable, `HOMAIR` tells us about the insulin resistance. There is no relationship between `hsCRP` and `HOMAIR` variables in obese females, but a positive correlation exist in males. Furthermore the values for these subjects indicates a IR (HOMAIR > 1.96).
+
+```{r chunk14}
+lm.TG <- ggplot(general_data,aes(hsCRP,TGmean))+ geom_smooth(method=lm,formula = y~x,se=T)+geom_point(size=3)+  stat_cor(aes(label = ..r.label..), color = "red", geom = "label")+ylab("Triglicerids");
+lm.TG+facet_wrap(.~ OBESE+GROUP)
+
+lm.TG <- ggplot(general_data,aes(hsCRP,COLmean))+ geom_smooth(method=lm,formula = y~x,se=T)+geom_point(size=3)+  stat_cor(aes(label = ..r.label..), color = "red", geom = "label")+ylab("Cholesterol");
+lm.TG+facet_wrap(.~ OBESE+GROUP)
+
+lm.TG <- ggplot(general_data,aes(hsCRP,HDLmean))+ geom_smooth(method=lm,formula = y~x,se=T)+geom_point(size=3)+  stat_cor(aes(label = ..r.label..), color = "red", geom = "label")+ylab("HDL");
+lm.TG+facet_wrap(.~ OBESE+GROUP)
+
+lm.TG <- ggplot(general_data,aes(hsCRP,LDLmean))+ geom_smooth(method=lm,formula = y~x,se=T)+geom_point(size=3)+  stat_cor(aes(label = ..r.label..), color = "red", geom = "label")+ylab("LDL");
+lm.TG+facet_wrap(.~ OBESE+GROUP)
+
+
+```
+
+A negative correlation between TG and hsCRP is observed across subject except on obese PCOS women, and males. Regarding cholesterol the difference is observed by sex. On women the correlation between Cholesterol and hsCRP is negative, while in men is positive. HDL-cholesterol and hsCRP show a negative correlation in healthy women, Obese PCOS, and healthy males. And a positive correlation in non-obese PCOS women and obese control women. It seems that in obese males correlation does not exist. LDL cholesterol and hsCRP show a positive correlation in men, and a negative correlation in women in general. 
+
+
+
+### Description of variables along the 3 days of study
+
+Firstly let's see the distribution of the variables.
+```{r chunk15}
+## Function that takes variable names and the labels for the axis.
+bp.1.vars<-function(datos_,vars,y_lab){
+  
+  datos <- cbind(datos_[,c("GROUP","OBESE")],datos_[,vars])
+  df.melt<-melt(datos,id.vars=c("GROUP","OBESE"))
+  
+    # print(head(df.melt))
+
+
+  p2<-ggplot(df.melt,aes(y=value,x=variable,fill=GROUP))+geom_boxplot()+ylab(y_lab)+facet_grid(~OBESE)+xlab("") +geom_hline(yintercept=0, linetype="dashed", color = "red")
+  
+  
+  return(p2)
+  
+}
+```
+
+
+#### HOMAIR
+
+```{r}
+##HOMAIR plots
+
+
+do.call(grid.arrange,hist.list[26:28])
+bp.1.vars(general_data,c(31:33),"HOMA-IR")
+```
+
+
+The distribution across the three days is right skewed. Moreover,the relationship among groups remain constant, tough there is a progressively increase of HOMA-IR values on the subsequent days in non-obese subjects. HOMA-IR values across obese subjects is higher, being PCOS women with the highest values.
+
+#### Insulin
+
+```{r chunk_insulin}
+### Insulin basal and Postpradial
+do.call(grid.arrange,c(hist.list[c(20:22,29:31)],list(nrow=2,ncol=3)))
+
+p1<-bp.1.vars(general_data,c("SOG_INS_B","SOL_INS_B","SOP_INS_B"),"basal insulin")
+p2<-bp.1.vars(general_data,c("SOG_INS_AUC","SOL_INS_AUC","SOP_INS_AUC"),"Postpradial insulin")+ theme(axis.text.x = element_text(angle = 0, vjust = 0.9, hjust=1,size = 7))
+grid.arrange(p1,p2)
+```
+
+Basal insulin shows a right skewed distribution, though Postprandial distribution of insulin seems to follow more like a normal distribution. On obese subjects, the insulin levels are higher basal and Postpradial. Basal insulin is higher on PCOS obese women, but the relationship remains almost without change across all days. Postpradial levels are remarkably higher on the glucose oral load day, followed by the last day, i.e the protein load day. With valoues also higher in woman with PCOS.
+
+
+#### Glucose
+```{r}
+### glucose basal and Postpradial
+do.call(grid.arrange,c(hist.list[c(23:25,32:34)],list(nrow=2,ncol=3)))
+
+p1<-bp.1.vars(general_data,c("SOG_GLC_B","SOL_GLC_B","SOP_GLC_B"),"basal glucose")
+p2<-bp.1.vars(general_data,c("SOG_GLU_AUC","SOL_GLU_AUC","SOP_GLU_AUC"),"Postpradial glucose")+ theme(axis.text.x = element_text(angle = 0, vjust = 0.9, hjust=1,size = 7))
+grid.arrange(p1,p2)
+```
+Basal and Postpradial distribution of gluclose tent to follow a normal distribution. In general, postrpadrial levels of glucose are lower than basal levels. Between groups, in basal levels of glucose, obese subjects have higher levels of glucaemia. Between them, females have the highest value across all days being the glucose oral day the one with the most higher levels. On non obese subjects, males have the higher levels of glucemia. Obese women with PCOS have the lowest values of glucose in blood, though higher than non-obese PCOS women.
+
+
+#### Triglicerids
+
+
+```{r}
+## Triglicerids
+do.call(grid.arrange,c(hist.list[35:40],list(nrow=2,ncol=3)))
+p1<-bp.1.vars(general_data,c("SOG_TG_0","SOL_TG_0","SOP_TG_0"),"basal triglicerids")
+p2<-bp.1.vars(general_data,c("SOGAUCTG","SOLAUCTG","SOPAUCTG"),"Postpradial triglicerids")+ theme(axis.text.x = element_text(angle = 0, vjust = 0.9, hjust=1,size = 7))
+grid.arrange(p1,p2)
+
+```
+Distributions basal and Postpradial levels of triglicerids follow a right skewed  distribution but a normal one on Postpradial levels on the load lipid and protein days. The triglicerids levels are higher at basal state than Postpradial. There are different distributions between groups across days in basal state. But these values are higher in obese subjects. Postpradial levels also, the distribution between groups is different each day, but lower on the protein load day. Although similar distributions across all subjects. 
+
+
+#### Cholesterol
+
+```{r}
+### Cholesterol
+do.call(grid.arrange,c(hist.list[41:46],list(nrow=2,ncol=3)))
+p1<-bp.1.vars(general_data,c("SOG_COL_0","SOL_COL_0","SOP_COL_0"),"basal cholesterol")
+p2<-bp.1.vars(general_data,c("SOGAUCCOL","SOLAUCCOL","SOPAUCCOL"),"Postpradial cholesterol")+ theme(axis.text.x = element_text(angle = 0, vjust = 0.9, hjust=1,size = 7))
+grid.arrange(p1,p2)
+```
+Regarding the distributions, all of them seems to follow a normal one except basal cholesterol on day 1 and Postpradial cholesterol the 3th day being the first one right skewed and the lastone left skewed.
+
+Basal levels of cholesterol are higher in obese subjects, though obese and non-obese females show a similar distribution, and PCOS and men show more variance. At Postpradial stage, the levels of cholesterolemia diminshes. With higher levels of cholesterol at the glucose and lipid load in women with PCOS. 
+
+
+#### HDL
+
+```{r}
+### Cholesterol HDL
+do.call(grid.arrange,c(hist.list[47:52],list(nrow=2,ncol=3)))
+p1<-bp.1.vars(general_data,c("SOG_HDL_0","SOL_HDL_0","SOP_HDL_0"),"basal HDL cholesterol")
+p2<-bp.1.vars(general_data,c("SOGAUCHDL","SOLAUCHDL","SOPAUCHDL"),"Postpradial HDL cholesterol")+ theme(axis.text.x = element_text(angle = 0, vjust = 0.9, hjust=1,size = 7))
+grid.arrange(p1,p2)
+```
+Regarding distribution of basal and Postpradial levels of HDL cholesterol, only the AUC of HDL on the glucose day follows a normal one. Basal levels show a slightly right skewed distribution, and the other AUC on the second and thirth day follow a left skewed distribution.
+
+HDL distribution between groups, the data show a lower concentration of HDL cholesterol on obese subjects, and in general less HDL on men. With higher concentrations in PCOS non-obese patients and obese women. At Postpradial level, in general the subjects present lower concentrations than at the basal levels. At this stage, higher levels of HDL are present in obese subjects, with no clear pattern among the days.
+
+#### LDL
+
+```{r}
+### Cholesterol HDL
+do.call(grid.arrange,c(hist.list[53:58],list(nrow=2,ncol=3)))
+p1<-bp.1.vars(general_data,c("SOG_LDL_0","SOL_LDL_0","SOP_LDL_0"),"basal LDL cholesterol")
+p2<-bp.1.vars(general_data,c("SOGAUCLDL","SOLAUCLDL","SOPAUCLDL"),"Postpradial LDL cholesterol")+ theme(axis.text.x = element_text(angle = 0, vjust = 0.9, hjust=1,size = 7))
+grid.arrange(p1,p2)
+```
+Distribution of LDL cholesterol at basal levels are slightly left skewed and at Postpradial stage, are right skewed, though on the first day the distribution is left skewed.
+
+LDL cholesterol levels are higher at basal time on obese subjects, with more variance in general.Obese men have the highest values. At Postpradial stage, levels decreases in comparison with basal time. Ob obese subjects, on the 1st and 2d day, PCOS women show higher values of LDL cholesterol.
+
+## Description of Intestinal Permeability Markers.
+
+Read the file of IP
+```{r IPmarkerssData}
+IP_file<-file.path(params$folder.data,file=params$file_IP) ## file path of the data
+IP.tmp<-read.xlsx(IP_file,sheetIndex = 1)
+```
+
+Observe the structure of the data
+```{r chunkip1}
+str(IP.tmp) # show general description of the data
+```
+
+We observe form the information displayed that there is a column of missing values. Furthermore, we have the same number of observations, 57, and 42 variables. Form these variables, 35 variables are new. 5 variables we have already have it from the previous analysis, and the first one is de order of the samples. Thus, in order to proceed we have to remove the missing value column. This column is only for visualization purposes in Excel. 
+
+We could merge the variables form the first dataset, but to be sure that the order of samples is not another, weare going to perform a sanity check. Furthermore, as in the clinical dataset, the categorical variables are in `character` class. So we need also to transform into factors. 
+
+
+```{r}
+IP<-IP.tmp[,-7] # remove the missin values column
+IP$SEX <- factor(IP$SEX,levels=c(0,2),labels = c("Female","Male"))
+IP$OBESE <- factor(IP$OBESE,levels=c(0,1),labels = c("No Obese","Obese"))
+IP$GROUP <- factor(IP$GROUP,levels=c(0,1,2),labels = c("Female","PCOS","Male"))
+all(IP$Paciente == general_data$Paciente) # sanity check.
+# str(IP)
+```
+
+The data comprises the following permeability markers.
+
+1. CD14
+
+Cluster differentiation 14 (CD14), is a human protein  made mostly by macrophages as part of the innate immune system. Detects **bacteria** in the body by  binding **lipopolysaccharide** (LPS), a pathogen-associated molecular pattern. It is anchored to the membrane by a **glycosylphosphatidylinositol** (GPI) CD14 acts as a co-receptor (along with the *Toll-like receptor TLR 4 and MD-2*) for the detection of bacterial lipopolysaccharide (LPS). CD14 can bind LPS only in the presence of **lipopolysaccharide-binding protein (LBP)** but also recognizes other pathogen-associated molecular patterns such as *lipoteichoic acid* soluble
+
+2. LBP
+
+Lipopolysaccharide binding protein: LBP is a soluble acute-phase protein that binds to bacterial lipopolysaccharide (or LPS) to elicit immune responses by presenting the LPS to important cell surface pattern recognition receptors called CD14 and TLR4. The protein encoded by this gene is involved in the acute-phase immunologic response to gram-negative bacterial infections. 
+The protein encoded by this gene is involved in the acute-phase immunologic response to gram-negative bacterial infections. The proinflammatory activity of plasma LPS is increased by LPB, which is higher in obesity Lipopolysaccharide-binding protein has been shown to interact with CD14, TLR2, TLR4 and the co-receptor MD-2
+
+
+3. GLP2
+
+
+Glucagon-like peptide 2 (GLP-2) is a 33 amino acid peptide-encoded carboxyterminal to the sequence of GLP-1 in the proglucagon gene. Both GLP-1 and GLP-2 are secreted from gut endocrine cells and promote nutrient absorption through distinct mechanisms of action. GLP-2 regulates gastric motility, gastric acid secretion, intestinal hexose transport, and increases the barrier function of the gut epithelium. GLP-2 reduces mortality and decreases mucosal injury, cytokine expression, and bacterial septicemia in the setting of small and large bowel inflammation. 
+
+
+
+4. Zonulin
+
+Zonulin (haptoglobin 2 precursor) is a protein that modulates the permeability of tight junctions between cells of the wall of the digestive tract.  Type 2 diabetic patients have shown increased zonulin
+
+
+5. Succinate
+
+Activation of inflammatory macrophages through toll-like receptors induces a metabolic shift towards glycolysis.....Actually is a metabolite 
+
+For each intestinal permeability marker, it is measured at basal stage and mean, for each day corresponding to every marcronutrient load. For each day they only measured values at basal time and at 60 minutes or 120 minutes, depending if it the load was lipids or not.
+
+
+### Description of the variables 
+
+| Variable 	| Description 	|
+|:---:	|:---:	|
+| Orden 	| Order of the subjects 	|
+| Paciente 	| Women contol (M),PCOS women (P),Male (V), d (Not obese), O (Obese), GLP (challenge macronutrients: glucose, lipids, proteins) 	|
+|  	<br>SEX 	| 0 Women, 2 Male 	|
+|  	<br>GROUP 	| 0 Women Control, 1 PCOS, 2 Male 	|
+|  	<br>OBESE 	| 0 Not obese, 1 Obese 	|
+| BMI 	| Body Mass Index 	|
+| CD14_basalmean 	| Mean basal concentration: Cluster differentiation 14 (CD14) 	|
+| G_CD14_0 	| Basal time Glucose load day: Cluster differentiation 14 	|
+| L_CD14_0 	| Basal time Lipid load day: Cluster differentiation 14 	|
+| P_CD14_0 	| Basal time Protein load day: Cluster differentiation 14 	|
+| AUC_CD14_Glu 	| Postprandial time Area Under the Curve Glucose load day: Cluster differentiation 14 	|
+| AUC_CD14_Lipids 	| Postprandial time Area Under the Curve Lipids load day: Cluster differentiation 14 	|
+| AUC_CD14_Prots 	| Postprandial time Area Under the Curve Rroteins load day: Cluster differentiation 14 	|
+| LBP_basalmean 	| Mean basal concentration:  Lipopolysaccharide binding protein  	|
+| G_LBP__0 	| Basal time Glucose load day: Lipopolysaccharide binding protein 	|
+| L_LBP_0 	| Basal time Lipid load day: Lipopolysaccharide binding protein 	|
+| P_LBP_0 	| Basal time Protein load day: Lipopolysaccharide binding protein 	|
+| AUC_LBP_Glu 	| Postprandial time Area Under the Curve Glucose load day: Lipopolysaccharide binding protein 	|
+| AUC_LBP_Lipids 	| Postprandial time Area Under the Curve Lipids load day: Lipopolysaccharide binding protein 	|
+| AUC_LBP_Prots 	| Postprandial time Area Under the Curve Proteins load day: Lipopolysaccharide binding protein 	|
+| GLP2_basalmean 	| Mean basal concentration: Glucagon-like peptide 2 	|
+| G_GLP2_0 	| Basal time Glucose load day: Glucagon-like peptide 2 	|
+| L_GLP2_0 	| Basal time Lipid load day: Glucagon-like peptide 2 	|
+| P_GLP2_0 	| Basal time Protein load day: Glucagon-like peptide 2 	|
+| AUC_GLP2_Glu 	| Postprandial time Area Under the Curve Glucose load day: Glucagon-like peptide 2 	|
+| AUC_GLP2_Lipids 	| Postprandial time Area Under the Curve Lipids load day: Glucagon-like peptide 2 	|
+| AUC_GLP2_Prots 	| Postprandial time Area Under the Curve Proteins load day: Glucagon-like peptide 2 	|
+| Zonulin_basalmean 	| Mean basal concentration: zonulin 	|
+| G_Zonulin_0 	| Basal time Glucose load day: zonulin 	|
+| L_Zonulin_0 	| Basal time Lipid load day: zonulin 	|
+| P_Zonulin_0 	| Basal time Protein load day: zonulin 	|
+| AUC_Zonulin_Glu 	| Postprandial time Area Under the Curve Glucose load day: zonulin 	|
+| AUC_Zonulin_Lipids 	| Postprandial time Area Under the Curve Lipids load day: zonulin 	|
+| AUC_Zonulin_Prots 	| Postprandial time Area Under the Curve Rroteins load day: zonulin 	|
+| Succin_basalmean 	| Mean basal concentration: Succinate* 	|
+| G_Succinate_0 	| Basal time Glucose load day: Succinate* 	|
+| L_Succinate_0 	| Basal time Lipid load day: Succinate 	|
+| P_Succinate_0 	| Basal time Protein load day: Succinate* 	|
+| AUC_Succ_Glu 	| Postprandial time Area Under the Curve Glucose load day: Succinate* 	|
+| AUC_Succ_Lipids 	| Postprandial time Area Under the Curve Lipids load day: Succinate* 	|
+| AUC_Succ_Prots 	| Postprandial time Area Under the Curve Rroteins load day: Succinate* 	|
+
+### Sanity check: Statistical description of categorical variables.
+
+
+```{r intialtables2}
+(sexo<-table(IP$SEX))
+
+(sexo.obesos<-table(IP$SEX,IP$OBESE))
+
+(subgrupos<-table(IP$GROUP,IP$OBESE))
+```
+
+```{r plot1_IP, fig.align='center'}
+ggplot(data = IP,aes(x=GROUP,y=OBESE,fill=OBESE)) + geom_bar(stat = "identity",color="black",position = position_dodge())+theme_minimal()
+
+```
+
+### Univariate descriptive analysis of IP markers
+
+#### Numerical descriptive analysis
+
+Before starting with the graphical statistical analysis, we are going to perform a numerical descriptive analysis.
+
+```{r chunkIPdes}
+
+IP.variables <- IP[,3:ncol(IP)] ## remove samples names and order from the summary adn BMI variable, we have already described
+
+
+
+IP.sum<-IP.variables %>%group_by(GROUP,OBESE) %>% 
+  summarise(across(where(is.numeric),resumen),n=n()) # Group the data by variable GROUP and OBESE
+
+d.f<-as.data.frame(t(IP.sum))[c(nrow(t(IP.sum)),1:(nrow(t(IP.sum))-1)),] # transpose the data for visualization purposes and get rid off the N value for same purposes
+d.f_final <- d.f[-c(1:4),] # remove categorical variables.
+nombre_variables<- c("Mean basal value sCD14",
+                  "Basal gluclose load sCD14",
+                  "Basal lipid load sCD14",
+                  "Basal protein load sCD14",
+                  "Postprandial AUC glucose sCD14",
+                  "Postprandial AUC lipid sCD14",
+                  "Postptrandial AUC protien sCD14",
+                   "Mean basal value LBP",
+                  "Basal gluclose load LBP",
+                  "Basal lipid load LBP",
+                  "Basal protein load LBP",
+                  "Postprandial AUC glucose LBP",
+                  "Postprandial AUC lipid LBP",
+                  "Postptrandial AUC protien LBP",
+                  "Mean basal value GLP2",
+                  "Basal gluclose load GLP2",
+                  "Basal lipid load GLP2",
+                  "Basal protein load GLP2",
+                  "Postprandial AUC glucose GLP2",
+                  "Postprandial AUC lipid GLP2",
+                  "Postptrandial AUC protien GLP2",
+                   "Mean basal value zonulin",
+                  "Basal gluclose load zonulin",
+                  "Basal lipid load zonulin",
+                  "Basal protein load zonulin",
+                  "Postprandial AUC glucose zonulin",
+                  "Postprandial AUC lipid zonulin",
+                  "Postptrandial AUC protien zonulin",
+                   "Mean basal value Succinate",
+                  "Basal gluclose load Succinate",
+                  "Basal lipid load Succinate",
+                  "Basal protein load Succinate",
+                  "Postprandial AUC glucose Succinate",
+                  "Postprandial AUC lipid Succinate",
+                  "Postptrandial AUC protien Succinate")
+code_variables <- colnames(IP)[7:ncol(IP)]
+d.f_final$Coda <- code_variables
+rownames(d.f_final) <-nombre_variables
+N<-as.character(d.f_final[1,])
+colnames(d.f_final) <- rep(c("Mean","SD"),6)
+## ATTENION! Because assining left hand expression is 
+## complicated, just for one table, be careful if we put another data-set
+## For showing the number of subjects by group
+kbl(d.f_final) %>%
+  kable_classic_2() %>%
+    add_header_above(c(" "=1,
+                      "9"= 2,
+                      "8"= 2,
+                      "9"= 2,
+                      "8"= 2,
+                      "10"= 2,
+                      "9"= 2,
+                      " "=1
+ )) %>%
+      add_header_above(c( " "=1,
+                     "No Obese" = 2,
+                     "Obese" =2,
+                     "No Obese" = 2,
+                     "Obese" =2,
+                     "No Obese" = 2,
+                     "Obese" =2, 
+                     " "=1)) %>%
+  add_header_above(c(" "=1,
+                      "Control Females" = 4, 
+                     "PCOS"=4,
+                     "Control Males"=4,
+                     " "=1))
+
+
+
+```
+
+
+#### General graphical descriptive analysis of the mean values at basal stage.
+
+Like we have doing until now, firstly let's describe the distribution of the main variables: sCD14, LBP, zonulin, and succinate. We hace to take into account that succinate is more like a metabolite rather than an intenstinal permeability marker. Furhtemore, **there is the doubt** if we have to analyze this metabolite with the metabolome or with this dataset, because the units are differents.
+
+**WHAT ARE THE UNITS OF THIS DATA SET ?**
+
+
+```{r chunkIP4}
+
+variables <- colnames(IP)[7:ncol(IP)]
+hist.list.IP<-list() ## initizalize a list of the histogram
+## plot all histograms via loop
+for(i in 1:length(variables)){
+  variable <- variables[i] ## name of the variable to plot
+  titulo <- nombre_variables[i] # title of the varialbe
+  
+  breaks <- pretty(range(IP[,variable]), 
+                   n = nclass.Sturges(IP[,variable]), min.n = 1)# make pretty histogram by appropiate bins
+  bwidth <- breaks[2]-breaks[1] ## bin width
+
+  ## plot
+  hist.list.IP[[i]]<-ggplot(IP,aes_string(x=variable))+geom_histogram(aes(y=..density..),
+                                                        binwidth =bwidth,colour="black")+geom_density(alpha=.2, fill="lightblue")+xlab(titulo)+ylab("")
+
+
+}
+
+
+bp.interaction <- list() ## intialize boxplot list interaction
+for(i in 1:length(variables)){
+  titulo <- nombre_variables[i]
+  variable <- variables[i]
+  bp.interaction[[i]]<-ggplot(IP,aes_string(x=GROUP,y=variable,interaction(GROUP),fill=OBESE))+geom_boxplot()+ylab(titulo)
+
+}
+```
+
+
+```{r}
+do.call(grid.arrange,hist.list.IP[grep("basalmean",colnames(IP)[7:ncol(IP)])])
+```
+All mean basal values for the variables in this dataset follows a right skewed distribution, except the mean basal value of `LBP`.
+
+Now let's take a look at the main relationships between them and the BMI.
+
+```{r}
+ggpairs(
+  IP[,c(6,grep("basalmean",colnames(IP)))], lower = list(continuous = wrap(lowerFn, method = "lm")),
+  diag = list(continuous = wrap("barDiag", colour = "blue")),
+  upper = list(continuous = wrap("cor", size = 5)),
+  columnLabels = c("BMI","sCD14","LBP","GLP2","zonulin","Succinate")
+)
+```
+
+In general terms, without making groups, BMI correlates positively with all basal levels of `LBP`, `GLP2`, `zonulin` and `Succinate`. This means, while BMI augments, all levels increases except `CD14` in which the correlation is negative. All correlations are statistically significant. 
+
+Regarding, `CD14` none of the correlation is statistically significant, furthermore, barely is there any correlation. Between positive with LBP and `zonulin` and negative for `Succinate` and `GLP2`.
+
+`LBP` correlates statistical significant in a positive manner with `zonulin` and `Succinate`. Positive also, but statistically significant with `GLP2`
+
+`GLP2` with `zonulin` though the data tells us there is a positive correlation, practically this correlation does not exist. Though is statistical significant positive with `Succinate`. Furthermore `Succinate` and `zonulin` does not correlate. 
+
+
+Now, we are going to proceed to observe the different values of each variable at basal, Postprandial and between the different days.
+
+##### CD14
+
+```{r cd14}
+
+cd14_basal<-bp.interaction[1]
+p1<-bp.1.vars(IP,c("G_CD14_0","L_CD14_0","P_CD14_0"),"Basal CD14")
+p2<-bp.1.vars(IP,c("AUC_CD14_Glu","AUC_CD14_Lipids","AUC_CD14_Prots"),"Postpradial CD14")+ theme(axis.text.x = element_text(angle = 0, vjust = 0.9, hjust=1,size = 7))
+grid.arrange(cd14_basal[[1]],p1,p2)
+```
+
+Postpradial levels of `CD14` are lower than basal levels of this permeability marker. Non-obese women have higher values of `CD14` at basal stage, followed by non-obese men. Obese PCOS women, have the highest values between obese subjects, but lower than healthy women, and similar values in non-obese PCOS women. Obese men and obese women, have lower levels than non-obese subjects. Postpradial levels, are lower in non-obese subjects, being lower women. Obese men at the first day have the highest values.
+
+##### LBP
+```{r}
+lbp_basal<-bp.interaction[8][[1]]
+p1<-bp.1.vars(IP,c("G_LBP__0","L_LBP_0","P_LBP_0"),"Basal LBP")
+p2<-bp.1.vars(IP,c("AUC_LBP_Glu","AUC_LBP_Lipids","AUC_LBP_Prots"),"Postpradial LBP")+ theme(axis.text.x = element_text(angle = 0, vjust = 0.9, hjust=1,size = 7))
+grid.arrange(lbp_basal,p1,p2)
+```
+
+Basal levels of `LBP` are higher than Postpradial stage. The IP data tells us that the mean basal values are higher in obese subjects, but mostly on PCOS obese women. At Postpradial stage, higher values have the non.obese subjects, but with more variability in obese subjects. Obese men at the lipid load day, have the highest values at Postprandial levels. In general at Postpradial stage the levels are similar between non-obese subjects.
+
+##### GLP
+
+
+```{r glp}
+lbp_basal<-bp.interaction[15][[1]]
+p1<-bp.1.vars(IP,c("G_GLP2_0","L_GLP2_0","P_GLP2_0"),"Basal GLP2")
+p2<-bp.1.vars(IP,c("AUC_GLP2_Glu","AUC_GLP2_Lipids","AUC_GLP2_Prots"),"Postpradial GLP2")+ theme(axis.text.x = element_text(angle = 0, vjust = 0.9, hjust=1,size = 7))
+grid.arrange(lbp_basal,p1,p2)
+```
+
+Again, basal levels of `GLP2` are higher than at Postpradial stage. Regarding the mean basal values, we observe that the obese PCOS and men have higher values. Control females, both obese and non-obese have similar distribution of values. While healthy males and PCOS obese women have similar values. If we see the data at the different days, on non-obese PCOS women, these patients have the lower values.
+
+At Postpradial time, in general, across subjects, the valuesof `GLP2` increases at the lipid and protein levels progressively. With similar values between subjects on non-obese persons. Obese PCOS women, show lower values of `GLP2`.
+
+
+
+##### zonulin
+
+
+```{r zonulin}
+lbp_basal<-bp.interaction[22][[1]]
+p1<-bp.1.vars(IP,c("G_Zonulin_0","L_Zonulin_0","P_Zonulin_0"),"Basal Zonulin")
+p2<-bp.1.vars(IP,c("AUC_Zonulin_Glu","AUC_Zonulin_Lipids","AUC_Zonulin_Prots"),"Postpradial Zonulin")+ theme(axis.text.x = element_text(angle = 0, vjust = 0.9, hjust=1,size = 7))
+grid.arrange(lbp_basal,p1,p2)
+```
+
+
+Basal levels of `zonulin` are higher than Postpradial levels. The mean basal levels are higher in obese subjects, but higher in obese women with PCOS. This values are higher at basal levels on the glucose load day. Similar values at Postpradial time or non-obese subjects is observed. Meanwhile on obese subjects these values increases. At glucose load day, the higher levels are in obese men. Next day and, in overall, obese control females have the highest concentration of `zonulin`, meanwhile the last day again, obese men have the higher value.
+
+##### Succinate.
+
+```{r succinate}
+lbp_basal<-bp.interaction[29][[1]]
+p1<-bp.1.vars(IP,c("G_Succinate_0","L_Succinate_0","P_Succinate_0"),"Basal Succinate" )
+p2<-bp.1.vars(IP,c("AUC_Succ_Glu","AUC_Succ_Lipids","AUC_Succ_Prots"),"Postpradial Succinate")+ theme(axis.text.x = element_text(angle = 0, vjust = 0.9, hjust=1,size = 7))
+grid.arrange(lbp_basal,p1,p2)
+```
+Basal concentration levels of `succinate` are higher than Postprandial levels. This levels are higher in obese subjects, particularly on PCOS women. At Postpradial time, non-obese males, have higher values, being this concentration higher on the first day. On obese subjects, also, the higher values are at the first day, with PCOS obese females with higher concentration, even in comparison with non-obese subjects. 
+
+
+
+## Description of the metabolites.
+
+
+Read the file of the metabolome. The data as the other datasets, are in excel format. Furthermore, sheet 2 , gives information about the encoding of the metabolites. There is a row of `NA` because of the import, so we remove that row. Then this dataset, the sample names have a different name than the Intestinal Permeability, and Clinical variables data-sets. 
+```{r metabolintessData}
+metabolome_file<-file.path(params$folder.data,file=params$file_metabolome) ## file path of the data
+metabolome.tmp<-read.xlsx(metabolome_file,sheetIndex = 1) # read the data
+metabolites_name <- read.xlsx(metabolome_file,sheetIndex = 2)$Metabolitos # read the names of the metabolites
+any(is.na(metabolome.tmp)) # there is a row of missing values.
+metabolome<-metabolome.tmp[-nrow(metabolome.tmp),] ## remove the missing value row
+metabolome$GROUP<-general_data$GROUP ## add GROUP variable 
+metabolome$OBESE <- general_data$OBESE ## add OBESE variables.
+```
+
+Observe the structure of the data
+```{r chunkipmeta}
+str(metabolome) # show general description of the data
+```
+
+Create a numerical descriptive table, with the meaning of the variables encoding.
+```{r descriptpiveNumMetabolome}
+
+metabolome.variables <- metabolome[,3:ncol(metabolome)] ## remove samples names and order from the summary
+
+
+metabolome.sum<-metabolome.variables %>%group_by(GROUP,OBESE) %>% 
+  summarise(across(where(is.numeric),resumen),n=n()) %>%mutate_if(is.numeric, format, 4) # Group the data by variable GROUP and OBESE
+
+d.f<-as.data.frame(t(metabolome.sum))[c(nrow(t(metabolome.sum)),1:(nrow(t(metabolome.sum))-1)),] # transpose the data for visualization purposes and get rid off the N value for same purposes
+d.f_final <- d.f[-c(1:3),] # remove categorical variables.
+auxfn <- function(ch){ # Function that help us to build the meaning of each variable
+  
+  meas1 <- paste("Mean value (a.u)",ch)
+  return(meas1)
+  
+}
+
+auxfn2 <- function(ch){ # Function that help us to build the meaning of each variable (2)
+  gb<-paste("Basal levels at glucose oral load day:",ch,"(a.u)")
+  gp<-paste("Postpradial levels at lipids oral load day:",ch,"(a.u)")
+  lb<-paste("Basal levels at glucose proteins oral load day:",ch,"(a.u)")
+  lp<-paste("Postpradial levels at glucose oral load day:",ch,"(a.u)")
+  pb<-paste("Basal levels at lipids oral load day:",ch,"(a.u)")
+  pp<-paste("Postpradial levels at porteins oral load day:",ch,"(a.u)")
+  return(c(gb,gp,lb,lp,pb,pp))
+}
+
+# name of each variable.
+nombre_metabolitos_variable<-c(unlist(lapply(metabolites_name, auxfn)),unlist(lapply(metabolites_name, auxfn2)))
+
+rownames(d.f_final) <-nombre_metabolitos_variable
+N<-as.character(d.f_final[1,])
+colnames(d.f_final) <- rep(c("Mean","SD"),6)
+d.f_final$varcode <- colnames(metabolome)[3:(ncol(metabolome)-2)]
+colnames(d.f_final)[13] <- "variable Code"
+## ATTENION! Because assining left hand expression is 
+## complicated, just for one table, be careful if we put another data-set
+## For showing the number of subjects by group
+as.data.frame(d.f_final)
+kbl(d.f_final,digits=c(rep(4,12),0)) %>%
+  kable_classic_2() %>%
+    add_header_above(c(" "=1,
+                      "9"= 2,
+                      "8"= 2,
+                      "9"= 2,
+                      "8"= 2,
+                      "10"= 2,
+                      "9"= 2,
+                      " "=1
+ )) %>%
+      add_header_above(c( " "=1,
+                     "No Obese" = 2,
+                     "Obese" =2,
+                     "No Obese" = 2,
+                     "Obese" =2,
+                     "No Obese" = 2,
+                     "Obese" =2,
+                     " "=1)) %>%
+  add_header_above(c(" "=1,
+                      "Control Females" = 4, 
+                     "PCOS"=4,
+                     "Control Males"=4,
+                     " "=1)) 
+
+
+```
+
+```{r structureMet}
+(p<-ncol(metabolome))
+(n<-nrow(metabolome))
+(num_metabolites<-length(colnames(metabolome)[grep("mean",colnames(metabolome))]))
+```
+We observe from the data that we have 263 variables. From this variables, 259 are the variables belonging to the metabolites. The 4 that we have subtracted correspond to the order, sample name,  group, and obese group. From the 259 variables that corresponds to the metabolites, only 37 are actual metabolites. For each metabolite, they calculated the mean basal value, the three days at basal time, and three days at postprandial time.
+
+Before we explore the distribution of the metabolites, at basal time and at postprandial stage, let's observe the correlation of the mean basal values for all metabolites, 
+```{r corrplotmet}
+corrplot(cor(metabolome[,grep("mean",colnames(metabolome))]),lab_size=1)
+
+```
+
+We can observe several patterns of positive correlation, and a few negative correlations. This is maybe due to the physical properties of the metabolites. For example, one can see that Oxoisocaproic, Leucine, Isoleucine and Valine are positive correlated. These metabolites have in common that the Oxoisocaproic acid, is derived from the leucine, isoleucine, and valine. And leucine, isoleucine and valine are non-polar.
+
+
+
+```{r}
+variables <- colnames(metabolome)
+hist.list.meta<-list() ## initizalize a list of the histogram
+## plot all histograms via loop
+for(i in 1:length(variables)){
+  if(variables[i]=="Order"||variables[i]=="Sample"){
+    next
+  }else if(class(metabolome[,i])=="factor"){
+    next
+  }
+  variable <- variables[i] ## name of the variable to plot
+  titulo <- colnames(metabolome)[i] # title of the varialbe
+  
+  breaks <- pretty(range(metabolome[,variable]), 
+                   n = nclass.Sturges(metabolome[,variable]), min.n = 1)# make pretty histogram by appropiate bins
+  bwidth <- breaks[2]-breaks[1] ## bin width
+
+  ## plot
+  hist.list.meta[[i]]<-ggplot(metabolome,aes_string(x=variable))+geom_histogram(aes(y=..density..),
+                                                        binwidth =bwidth,colour="black")+geom_density(alpha=.2, fill="lightblue")+xlab(titulo)+ylab("")
+
+
+}
+
+
+bp.interaction <- list() ## intialize boxplot list interaction
+for(i in 1:length(variables)){
+  titulo <- colnames(metabolome)[i]
+  variable <- variables[i]
+  bp.interaction[[i]]<-ggplot(metabolome,aes_string(x=GROUP,y=variable,interaction(GROUP),fill=OBESE))+geom_boxplot()+ylab(titulo)
+
+}
+```
+
+
+### Distributions of the basal concentrations of the metabolites. 
+
+
+```{r}
+do.call(grid.arrange,hist.list.meta[3:11])
+do.call(grid.arrange,hist.list.meta[12:20])
+do.call(grid.arrange,hist.list.meta[21:29])
+do.call(grid.arrange,hist.list.meta[30:38])
+hist.list.meta[39][[1]]
+```
+
+From the distributions of the metabolites, one can observe, that leucine, isuleucine, alanine, glycloprotein, acetone, glutamic acid, glutamin, citrate, aspargine, ornithine, carnitine, betaine, glycine, threonine, glycerol, serine, tyrosine, phenylalanine,and tryptophan, more or less follow a normal distribution, the other metabolites, oxoisocaproic, valine, isobutyric, oxoisovaleric, hydroxibutyric, lactate, acatetate pyruvate, pyroglutamic, creatinine, creatine, lysine, proline, beta glucose, d glucose, methylhistidine, and formate, tend to follow skewed distributions.
+
+```{r}
+auxtst <- function(datos,columna){
+  
+  y<-as.data.frame(datos[,columna])
+  colnames(y)<-colnames(datos)[columna]
+  # print(unlist(y))
+  obeso <- datos[,"OBESE"]
+  grupo<- datos[,"GROUP"]
+  print(paste("anova de..", names(y)))
+  print(colnames(datos)[columna])
+  s<-summary(aov(unlist(y)~obeso+grupo+obeso:grupo))
+  s<-s[[1]]
+  
+  if(any(complete.cases(s$`Pr(>F)`<0.05))){
+  print(paste("Existen diferencias entre grupos con la variable",names(y)))
+  s.g<-pairwise.t.test(unlist(y),grupo)$p.value<0.05
+  s.o <- pairwise.t.test(unlist(y),obeso)$p.value<0.05
+  z.inter <- pairwise.t.test(unlist(y),obeso:grupo)$p.value<0.05
+  print("entre grupo")
+  print(s.g)
+  print("entre obeso")
+  print(s.o)
+  print("interaccion")
+  print(z.inter)
+    
+  }
+}
+```
+
+
+#### 2-Oxoisocaproic acid_2
+```{r Oxicocaproic}
+meta<-grep("oxoisoca",ignore.case = T,colnames(metabolome))
+meta.mean<-meta[1]
+meta.plts<-meta[-1]
+###plots
+i1<-bp.interaction[meta.mean][[1]]
+p1<-bp.1.vars(metabolome,meta.plts[c(1,3,5)],"Basal Oxicocaproic " )+theme(axis.text.x = element_text(angle = 45, vjust = 0.9, hjust=1,size = 7))
+p2<-bp.1.vars(metabolome,meta.plts[c(2,4,6)],"Postprandial Oxicocaproic")+ theme(axis.text.x = element_text(angle = 45, vjust = 0.9, hjust=1,size = 7))
+
+grid.arrange(i1,p1,p2)
+
+```
+
+For the mean basal concentration values of Isoleucine_1, we can observe that there are differences between control women, PCOS patients and males, being the concentration levels of this metabolites higher in men, followed by PCOS women and in healthy women. Furthermore there are differences between obese subjects, but not between men. It seems that there is no differences between non-obese PCOS women and obese women. There is not differences between men and obese PCOS obese patients. If we take a closer observation in basal days, there is not differences between days, having the main relationships as in the mean of the three days.
+
+At postprandial time, the concentration of this metabolite is lower in comparison with basal time. We cannot observe differences between groups at the first day, neither on the second but on the last day, on non-obese males, the concentration is higher than non-obese females. Non-obese men, have similar concentration values than all obsese subjects,
+
+#### Leucine_1
+
+```{r}
+meta<-grep("Leu",ignore.case = T,colnames(metabolome))
+meta.mean<-meta[1]
+meta.plts<-meta[-1]
+###plots
+i1<-bp.interaction[meta.mean][[1]]
+p1<-bp.1.vars(metabolome,meta.plts[c(1,3,5)],"Basal Leucine_1 " )+theme(axis.text.x = element_text(angle = 45, vjust = 0.9, hjust=1,size = 7))
+p2<-bp.1.vars(metabolome,meta.plts[c(2,4,6)],"Postprandial Leucime_1")+ theme(axis.text.x = element_text(angle = 45, vjust = 0.9, hjust=1,size = 7))
+
+grid.arrange(i1,p1,p2)
+```
+
+The mean basal levels of Lucine_1 seems not to have differences between obese and non-obese subjects. Though there is a slight difference between obese PCOS women and non-obese PCOS women, being higher the levels of this metabolite in PCOS obese women. Between sex, the concentration levels are higher in males than females. Takin a close look at each basal day, the values are higher on the glucose oral load day. Being higher on males and obese subjetcts than females, but similar values between obese PCOS women and males. For the rest of the days, there it seems no differences relay between groups.
+
+Postprandial levels are lower than basal levels. Across all days, non-obese males, present higher levels of this metabolite than obese men. Similar pattern but with lower levels, are present in PCOS women, being higher in obese ones. Similar pattern between control women are present. 
+
+#### Isoleucine_1
+
+```{r}
+meta<-grep("Isoleu",ignore.case = T,colnames(metabolome))
+meta.mean<-meta[1]
+meta.plts<-meta[-1]
+###plots
+i1<-bp.interaction[meta.mean][[1]]
+p1<-bp.1.vars(metabolome,meta.plts[c(1,3,5)],"Basal Isoleucine_1 " )+theme(axis.text.x = element_text(angle = 45, vjust = 0.9, hjust=1,size = 7))
+p2<-bp.1.vars(metabolome,meta.plts[c(2,4,6)],"Postprandial Isoleucine_1")+ theme(axis.text.x = element_text(angle = 45, vjust = 0.9, hjust=1,size = 7))
+
+grid.arrange(i1,p1,p2)
+```
+
+
+Basal levels of Isoleucine_1 are higher in obese PCOS females than non-obese females with similar values on men. Looking at each day, similar pattern is observed.
+
+Basal levels are higher than at postprandial stage. At each day of the study, no difference is observed among groups, except last day, on the protein load day. Where these values are higher than the rest of the previous days. The highest values are for non-obese males, but there is not differences between groups and obese subjects, except on males.
+
+#### L-valine
+
+```{r}
+meta<-grep("valine",ignore.case = T,colnames(metabolome))
+meta.mean<-meta[1]
+meta.plts<-meta[-1]
+###plots
+i1<-bp.interaction[meta.mean][[1]]
+p1<-bp.1.vars(metabolome,meta.plts[c(1,3,5)],"Basal Valine " )+theme(axis.text.x = element_text(angle = 45, vjust = 0.9, hjust=1,size = 7))
+p2<-bp.1.vars(metabolome,meta.plts[c(2,4,6)],"Postprandial Valine")+ theme(axis.text.x = element_text(angle = 45, vjust = 0.9, hjust=1,size = 7))
+
+grid.arrange(i1,p1,p2)
+```
+
+The mean basal levels of this metabolites, are higher on obese females, with similar values in comparison with men. PCOS women have higher values than control women. Similar pattern it is observed on each day. 
+
+Postprandial levels are lower than basal levels. The third day, subjects present higher concentration, with no distinction between groups. 
+
+#### Isobutyric acid_1
+```{r}
+meta<-grep("Isobutyric",ignore.case = T,colnames(metabolome))
+meta.mean<-meta[1]
+meta.plts<-meta[-1]
+###plots
+i1<-bp.interaction[meta.mean][[1]]
+p1<-bp.1.vars(metabolome,meta.plts[c(1,3,5)],"Basal Isobutyric acid " )+theme(axis.text.x = element_text(angle = 45, vjust = 0.9, hjust=1,size = 7))
+p2<-bp.1.vars(metabolome,meta.plts[c(2,4,6)],"Postprandial Isobutyric acid ")+ theme(axis.text.x = element_text(angle = 45, vjust = 0.9, hjust=1,size = 7))
+
+grid.arrange(i1,p1,p2)
+```
+
+Isbutyric acid levels, at basal time on non-obese females, are higher than obese females. There is no distinction between men. On each day, similar pattern is observed. 
+
+Basal values are higher than postprandial levels. Not distinction between groups is observed at each day. On the last day, higher values are present across all subjects. 
+
+#### 2-oxoisovaleric acid_1
+
+```{r}
+meta<-grep("Oxoisovaleric",ignore.case = T,colnames(metabolome))
+meta.mean<-meta[1]
+meta.plts<-meta[-1]
+###plots
+i1<-bp.interaction[meta.mean][[1]]
+p1<-bp.1.vars(metabolome,meta.plts[c(1,3,5)],"Basal Oxoisovaleric " )+theme(axis.text.x = element_text(angle = 45, vjust = 0.9, hjust=1,size = 7))
+p2<-bp.1.vars(metabolome,meta.plts[c(2,4,6)],"Postprandial Oxoisovaleric")+ theme(axis.text.x = element_text(angle = 45, vjust = 0.9, hjust=1,size = 7))
+
+grid.arrange(i1,p1,p2)
+```
+Mean basal values of Oxoisovaleric acid are higher in obese women than non-obese women. With similar values in comparison with men. Higher values of PCOS women are present. Each day show similar patterns. Obese PCOS women show highest values across all days.
+
+Postprandial levels are lower than basal levels. No differences between groups are present across all days. 
+
+#### 3-Hydroxybutyric acid_1
+```{r}
+meta<-grep("ohbutyric",ignore.case = T,colnames(metabolome))
+meta.mean<-meta[1]
+meta.plts<-meta[-1]
+###plots
+i1<-bp.interaction[meta.mean][[1]]
+p1<-bp.1.vars(metabolome,meta.plts[c(1,3,5)],"Basal 3-Hydroxybutyric acid_1 " )+theme(axis.text.x = element_text(angle = 45, vjust = 0.9, hjust=1,size = 7))
+p2<-bp.1.vars(metabolome,meta.plts[c(2,4,6)],"Postprandial 3-Hydroxybutyric acid_1")+ theme(axis.text.x = element_text(angle = 45, vjust = 0.9, hjust=1,size = 7))
+
+grid.arrange(i1,p1,p2)
+```
+
+Basal mean values shows no differences between groups. Obese PCOS women show barely higher levels than non-obese PCOS females. 
+At the second day, if we observe basal levels, men have the higher concentration.
+
+Here, there is almost indistinguishable differences between basal and postprandial levels of this metabolite. However, on the second day,  values increases across all subjects, with similar values in comparison with basal levels. Women show higher values of this metabolites than men on this day.
+
+#### Lactate_1
+
+```{r}
+meta<-grep("lactate",ignore.case = T,colnames(metabolome))
+meta.mean<-meta[1]
+meta.plts<-meta[-1]
+###plots
+i1<-bp.interaction[meta.mean][[1]]
+p1<-bp.1.vars(metabolome,meta.plts[c(1,3,5)],"Basal Lactate " )+theme(axis.text.x = element_text(angle = 45, vjust = 0.9, hjust=1,size = 7))
+p2<-bp.1.vars(metabolome,meta.plts[c(2,4,6)],"Postprandial Lactate ")+ theme(axis.text.x = element_text(angle = 45, vjust = 0.9, hjust=1,size = 7))
+
+grid.arrange(i1,p1,p2)
+```
+
+Lactate mean basal values are higher in obese PCOS women than non-obese, but not more differences are observed across all subjects. Basal values are higher than postprandial values. Being higher on the first day. No differences between groups are observed. 
+
+
+#### Alanine
+```{r}
+meta<-grep("alanine",ignore.case = T,colnames(metabolome))
+meta.mean<-meta[1]
+meta.plts<-meta[-1]
+###plots
+i1<-bp.interaction[meta.mean][[1]]
+p1<-bp.1.vars(metabolome,meta.plts[c(1,3,5)],"Basal Alanine_1 " )+theme(axis.text.x = element_text(angle = 45, vjust = 0.9, hjust=1,size = 7))
+p2<-bp.1.vars(metabolome,meta.plts[c(2,4,6)],"Postprandial Alanine_1")+ theme(axis.text.x = element_text(angle = 45, vjust = 0.9, hjust=1,size = 7))
+
+grid.arrange(i1,p1,p2)
+```
+
+Mean basal values of alanine are higher in obese subjects than non-obese, but this relationship is only observable in men and women with PCOS. Separately on each day, one can visualize than regarfing obesity, women with PCOS have higher concentrations of this metabolite. 
+
+Basal levels are higher than a postprandial stage. The lipid load day, thhe subjects present lower concentration of Alanine. across all days no differences are observed between subjects. Higher values are present on the first day in comparison with the second. On the last day, the protien load day, subjects present higher levels of Alanine than the other days.
+
+#### Acetate
+```{r}
+meta<-grep("acetate",ignore.case = T,colnames(metabolome))
+meta.mean<-meta[1]
+meta.plts<-meta[-1]
+###plots
+i1<-bp.interaction[meta.mean][[1]]
+p1<-bp.1.vars(metabolome,meta.plts[c(1,3,5)],"Basal Acetate_1" )+theme(axis.text.x = element_text(angle = 45, vjust = 0.9, hjust=1,size = 7))
+p2<-bp.1.vars(metabolome,meta.plts[c(2,4,6)],"Postprandial Acetate_1")+ theme(axis.text.x = element_text(angle = 45, vjust = 0.9, hjust=1,size = 7))
+
+grid.arrange(i1,p1,p2)
+```
+
+Mean basal values of acetate are higher in non-obese females in comparison with obese females. The contrary happens with men. Healthy women present higher values than PCOS non-obese patients. But obese PCOS women have higher values than control obese women. Similar values between men and PCOS women are present. Obese men have higher values than obese females, and obese PCOS women have higher values than obese control females.
+
+Basal values are higher in comparison with postprandial levels. There are not observable differences across subjects among all postprandial days.
+
+#### N-Ac-Glycoprotein_signals_1
+
+```{r}
+meta<-grep("glycoprot",ignore.case = T,colnames(metabolome))
+meta.mean<-meta[1]
+meta.plts<-meta[-1]
+###plots
+i1<-bp.interaction[meta.mean][[1]]
+p1<-bp.1.vars(metabolome,meta.plts[c(1,3,5)],"Basal  N-Ac-Glycoprotein_signals_1" )+theme(axis.text.x = element_text(angle = 45, vjust = 0.9, hjust=1,size = 7))
+p2<-bp.1.vars(metabolome,meta.plts[c(2,4,6)],"Postprandial  N-Ac-Glycoprotein_signals_1")+ theme(axis.text.x = element_text(angle = 45, vjust = 0.9, hjust=1,size = 7))
+
+grid.arrange(i1,p1,p2)
+```
+Mean basal values of N-Ac-Glycoprotein_signals_1 are higher on obese PCOS women than the rest of the subjects. However, non-obese control subjects have higher values than obese control subjects.
+
+Basal levels are higher in comparison with postprandial levels. No differences between groups across all days are observed. 
+
+
+####  Acetone_1
+```{r}
+meta<-grep("acetone",ignore.case = T,colnames(metabolome))
+meta.mean<-meta[1]
+meta.plts<-meta[-1]
+###plots
+i1<-bp.interaction[meta.mean][[1]]
+p1<-bp.1.vars(metabolome,meta.plts[c(1,3,5)],"Basal  Acetone_1" )+theme(axis.text.x = element_text(angle = 45, vjust = 0.9, hjust=1,size = 7))
+p2<-bp.1.vars(metabolome,meta.plts[c(2,4,6)],"Postprandial  Acetone_1")+ theme(axis.text.x = element_text(angle = 45, vjust = 0.9, hjust=1,size = 7))
+
+grid.arrange(i1,p1,p2)
+```
+Mean basal values of acetone, are higher on obese subjects. Obese PCOS women have higher values than men. PCOS women and men have higher values than females. Regarding non-obese subjects, men have the highest values. But on obese subjects, PCOS women have the highest values, enven higher than control healthy men.
+
+Basal levels are higher in comparison with postprandial levels. The second and the third day, men have the highest values. IN obese subjects, no difference it is present. But on the second and third days, levels are higher.
+
+
+#### L-Glutamic acid_1
+```{r}
+meta<-grep("gluacid",ignore.case = T,colnames(metabolome))
+meta.mean<-meta[1]
+meta.plts<-meta[-1]
+###plots
+i1<-bp.interaction[meta.mean][[1]]
+p1<-bp.1.vars(metabolome,meta.plts[c(1,3,5)],"Basal  L-Glutamic acid_1" )+theme(axis.text.x = element_text(angle = 45, vjust = 0.9, hjust=1,size = 7))
+p2<-bp.1.vars(metabolome,meta.plts[c(2,4,6)],"Postprandial  L-Glutamic acid_1")+ theme(axis.text.x = element_text(angle = 45, vjust = 0.9, hjust=1,size = 7))
+
+grid.arrange(i1,p1,p2)
+```
+Mean basal values of L-Glutamic acid_1 are higher in obese PCOS women and obese men. With no differences between control females.
+
+Higher values of this metabolite are present at basal time in comparison with postprandial times. The last day, the values are almost comparable with postprandial levels, on the protein load day. Control non-obese subjects present higher concentration of this metabolite than PCOS women. Howhever, no differences are observed on this day between obese subjects. 
+
+
+#### Pyruvate_1
+```{r}
+meta<-grep("pyruvate",ignore.case = T,colnames(metabolome))
+meta.mean<-meta[1]
+meta.plts<-meta[-1]
+###plots
+i1<-bp.interaction[meta.mean][[1]]
+p1<-bp.1.vars(metabolome,meta.plts[c(1,3,5)],"Basal  Pyruvate_1" )+theme(axis.text.x = element_text(angle = 45, vjust = 0.9, hjust=1,size = 7))
+p2<-bp.1.vars(metabolome,meta.plts[c(2,4,6)],"Postprandial   Pyruvate_1")+ theme(axis.text.x = element_text(angle = 45, vjust = 0.9, hjust=1,size = 7))
+
+grid.arrange(i1,p1,p2)
+```
+
+Mean basal values of pyruvate, are higher in obese subjects. This difference is observed only on females. But higher values are present on obese PCOS women.  PCOS women and men have higher values than control women.
+
+At postprandial levels, these are lower than basal levels. However ob obese subjects, similar values are observed at both stages. Specially on the first and last days. Postprandial levels of non obese men are higher. However on the first day, on obese PCOS women, these levels arises its maximum.
+
+#### Pyroglutamic acid
+
+
+
+```{r}
+meta<-grep("pyroglu",ignore.case = T,colnames(metabolome))
+meta.mean<-meta[1]
+meta.plts<-meta[-1]
+###plots
+i1<-bp.interaction[meta.mean][[1]]
+p1<-bp.1.vars(metabolome,meta.plts[c(1,3,5)],"Basal  Pyroglutamic acid" )+theme(axis.text.x = element_text(angle = 45, vjust = 0.9, hjust=1,size = 7))
+p2<-bp.1.vars(metabolome,meta.plts[c(2,4,6)],"Postprandial   Pyroglutamic acid")+ theme(axis.text.x = element_text(angle = 45, vjust = 0.9, hjust=1,size = 7))
+
+grid.arrange(i1,p1,p2)
+
+```
+
+Mean basal values of Pyroglutamic acid are higher in non-obese subjects, being this difference not observable in PCOS women.
+
+Postprandial leves are lower than basal levels. At the second day, the lipid oral day, these values increases being comparable wih basal levels. Being higher this values in women with CPOS.
+
+#### L-Glutamine_1
+
+```{r}
+meta<-grep("gln",ignore.case = T,colnames(metabolome))
+meta.mean<-meta[1]
+meta.plts<-meta[-1]
+###plots
+i1<-bp.interaction[meta.mean][[1]]
+p1<-bp.1.vars(metabolome,meta.plts[c(1,3,5)],"Basal  L-Glutamine_1" )+theme(axis.text.x = element_text(angle = 45, vjust = 0.9, hjust=1,size = 7))
+p2<-bp.1.vars(metabolome,meta.plts[c(2,4,6)],"Postprandial   L-Glutamine_1")+ theme(axis.text.x = element_text(angle = 45, vjust = 0.9, hjust=1,size = 7))
+
+grid.arrange(i1,p1,p2)
+```
+
+Mean basal values of glutamine are higher in obese subjects, but this difference is only observable in women. With highest values in obese women with PCOS.
+
+Postprandial levels are lower than basal levels. Each day after the macronutrients loads increase than the day before, with no differences between groups. Only on obese subjects, at the second day, obese females have higher conenctration than non-obese men.
+
+
+
+#### Citrate
+
+```{r}
+meta<-grep("citrate",ignore.case = T,colnames(metabolome))
+meta.mean<-meta[1]
+meta.plts<-meta[-1]
+###plots
+i1<-bp.interaction[meta.mean][[1]]
+p1<-bp.1.vars(metabolome,meta.plts[c(1,3,5)],"Basal  Citrate_2" )+theme(axis.text.x = element_text(angle = 45, vjust = 0.9, hjust=1,size = 7))
+p2<-bp.1.vars(metabolome,meta.plts[c(2,4,6)],"Postprandial   Citrate_2")+ theme(axis.text.x = element_text(angle = 45, vjust = 0.9, hjust=1,size = 7))
+
+grid.arrange(i1,p1,p2)
+```
+
+
+Basal levels of citrate are higher in non-obese subjects. However, this difference is not observable in females with PCOS. However PCOS obese women have the highest values of this metabolite.
+
+Lower levels at postprandial levels in comparison with basal levels is observed. Being this values higher on the first 2 days. Obese PCOS women, present on this days, higher concentration of this metabolite. 
+ 
+#### L-Asparagine_4
+
+```{r}
+meta<-grep("asn",ignore.case = T,colnames(metabolome))
+meta.mean<-meta[1]
+meta.plts<-meta[-1]
+###plots
+i1<-bp.interaction[meta.mean][[1]]
+p1<-bp.1.vars(metabolome,meta.plts[c(1,3,5)],"Basal  L-Asparagine_4" )+theme(axis.text.x = element_text(angle = 45, vjust = 0.9, hjust=1,size = 7))
+p2<-bp.1.vars(metabolome,meta.plts[c(2,4,6)],"Postprandial   L-Asparagine_4")+ theme(axis.text.x = element_text(angle = 45, vjust = 0.9, hjust=1,size = 7))
+
+grid.arrange(i1,p1,p2)
+```
+
+Mean basal levels of aspargine are similar between groups and across all days. Lower levels at postprandial time are observed in comparison with basal levels. However on the last day, similar values in comparison with basal values is observed. With no distiction between groups.
+
+#### Creatinine_1
+
+```{r}
+meta<-grep("creatinine",ignore.case = T,colnames(metabolome))
+meta.mean<-meta[1]
+meta.plts<-meta[-1]
+###plots
+i1<-bp.interaction[meta.mean][[1]]
+p1<-bp.1.vars(metabolome,meta.plts[c(1,3,5)],"Basal  Creatinine_1" )+theme(axis.text.x = element_text(angle = 45, vjust = 0.9, hjust=1,size = 7))
+p2<-bp.1.vars(metabolome,meta.plts[c(2,4,6)],"Postprandial   Creatinine_1")+ theme(axis.text.x = element_text(angle = 45, vjust = 0.9, hjust=1,size = 7))
+
+grid.arrange(i1,p1,p2)
+```
+Basal levels of Creatinine_1 are higher in obese PCOS women. With no diffence on the other groups. Postprandial levels are lower than basal levels, with no distinction between groups across all days. 
+
+#### Creatine_1
+
+```{r}
+meta<-grep("creatine",ignore.case = T,colnames(metabolome))
+meta.mean<-meta[1]
+meta.plts<-meta[-1]
+###plots
+i1<-bp.interaction[meta.mean][[1]]
+p1<-bp.1.vars(metabolome,meta.plts[c(1,3,5)],"Basal  Creatine_1" )+theme(axis.text.x = element_text(angle = 45, vjust = 0.9, hjust=1,size = 7))
+p2<-bp.1.vars(metabolome,meta.plts[c(2,4,6)],"Postprandial   Creatine_1")+ theme(axis.text.x = element_text(angle = 45, vjust = 0.9, hjust=1,size = 7))
+
+grid.arrange(i1,p1,p2)
+```
+Creatine basal levels are higher in obese PCOS women in comparison with the rest of the subjects. Lower levels in men than women are observed. No difference between control women is observed. Obese men have higher levels than non-obese men.
+
+Postrprandial levels are lower than basal levels. On the first day PCOS women show higher values. But the last day, all subjects present similar values in comparison with the basal measures. 
+
+#### Lysine_1
+```{r}
+meta<-grep("lysine",ignore.case = T,colnames(metabolome))
+meta.mean<-meta[1]
+meta.plts<-meta[-1]
+###plots
+i1<-bp.interaction[meta.mean][[1]]
+p1<-bp.1.vars(metabolome,meta.plts[c(1,3,5)],"Basal  Lysine_1" )+theme(axis.text.x = element_text(angle = 45, vjust = 0.9, hjust=1,size = 7))
+p2<-bp.1.vars(metabolome,meta.plts[c(2,4,6)],"Postprandial   Lysine_1")+ theme(axis.text.x = element_text(angle = 45, vjust = 0.9, hjust=1,size = 7))
+
+grid.arrange(i1,p1,p2)
+```
+
+Basal levels of lysisne are higher in obese subjects, but this difference is observable only between women. PCOS women have higher values than control women. And PCOS obese women have similar values than men. 
+
+Postprandial levels are lower than basal levels. Except on the protein load day. Withsimilar values. Non-obese men, and non-obese PCOS women have higher values than control women. And obese PCOS women present higher values than the other obese subjects. 
+
+
+#### Ornithine_1
+
+```{r}
+meta<-grep("Ornithine",ignore.case = T,colnames(metabolome))
+meta.mean<-meta[1]
+meta.plts<-meta[-1]
+###plots
+i1<-bp.interaction[meta.mean][[1]]
+p1<-bp.1.vars(metabolome,meta.plts[c(1,3,5)],"Basal  Ornithine_1" )+theme(axis.text.x = element_text(angle = 45, vjust = 0.9, hjust=1,size = 7))
+p2<-bp.1.vars(metabolome,meta.plts[c(2,4,6)],"Postprandial   Ornithine_1")+ theme(axis.text.x = element_text(angle = 45, vjust = 0.9, hjust=1,size = 7))
+
+grid.arrange(i1,p1,p2)
+```
+
+Basal levels of Ornithine are higher in obese subjects, but this difference is observable only between women. PCOS women have higher values than control women. And PCOS obese women have similar values than men. 
+
+Postprandial levels are lower than basal levels. Remain similar across all days. No differences between groups are present.
+
+#### Choline_1
+```{r}
+meta<-grep("choline",ignore.case = T,colnames(metabolome))
+meta.mean<-meta[1]
+meta.plts<-meta[-1]
+###plots
+i1<-bp.interaction[meta.mean][[1]]
+p1<-bp.1.vars(metabolome,meta.plts[c(1,3,5)],"Basal  Choline_1" )+theme(axis.text.x = element_text(angle = 45, vjust = 0.9, hjust=1,size = 7))
+p2<-bp.1.vars(metabolome,meta.plts[c(2,4,6)],"Postprandial   Choline_1")+ theme(axis.text.x = element_text(angle = 45, vjust = 0.9, hjust=1,size = 7))
+
+grid.arrange(i1,p1,p2)
+```
+No differences at present at basal levels. Neither at postprandial levels. Postprandial levels are lower than basal levels. 
+
+#### L-Carnitine_1
+
+```{r}
+meta<-grep("carnitine",ignore.case = T,colnames(metabolome))
+meta.mean<-meta[1]
+meta.plts<-meta[-1]
+###plots
+i1<-bp.interaction[meta.mean][[1]]
+p1<-bp.1.vars(metabolome,meta.plts[c(1,3,5)],"Basal  L-Carnitine_1" )+theme(axis.text.x = element_text(angle = 45, vjust = 0.9, hjust=1,size = 7))
+p2<-bp.1.vars(metabolome,meta.plts[c(2,4,6)],"Postprandial  L-Carnitine_1")+ theme(axis.text.x = element_text(angle = 45, vjust = 0.9, hjust=1,size = 7))
+
+grid.arrange(i1,p1,p2)
+```
+The mean basal values of L-carnitine_1 are higher in control women with similar values in men. Non-obese women, present higher values than obese women in general. Non-obese males, present higher values than obese men, and PCOS obese women, present higher values than non-obese PCOS women.
+
+Higher levels on basal stage are present in comparison with postprandial time. With no observable differences among groups 
+
+#### Betaine_1
+
+```{r}
+meta<-grep("betaine",ignore.case = T,colnames(metabolome))
+meta.mean<-meta[1]
+meta.plts<-meta[-1]
+###plots
+i1<-bp.interaction[meta.mean][[1]]
+p1<-bp.1.vars(metabolome,meta.plts[c(1,3,5)],"Basal  Betaine_1" )+theme(axis.text.x = element_text(angle = 45, vjust = 0.9, hjust=1,size = 7))
+p2<-bp.1.vars(metabolome,meta.plts[c(2,4,6)],"Postprandial  Betaine_1")+ theme(axis.text.x = element_text(angle = 45, vjust = 0.9, hjust=1,size = 7))
+
+grid.arrange(i1,p1,p2)
+```
+Betaine basal levels are higher in non-obese subjects in general. Apart form this observation no differences are present.
+
+Basal values are higher than postprandial values. No differences are observed at this stage in general. However on the last day, non-obese controls have higher values than PCOS non-obese women. 
+
+#### Glycine_1
+
+```{r}
+meta<-grep("glycine",ignore.case = T,colnames(metabolome))
+meta.mean<-meta[1]
+meta.plts<-meta[-1]
+###plots
+i1<-bp.interaction[meta.mean][[1]]
+p1<-bp.1.vars(metabolome,meta.plts[c(1,3,5)],"Basal  Glycine_1" )+theme(axis.text.x = element_text(angle = 45, vjust = 0.9, hjust=1,size = 7))
+p2<-bp.1.vars(metabolome,meta.plts[c(2,4,6)],"Postprandial Glycine_1")+ theme(axis.text.x = element_text(angle = 45, vjust = 0.9, hjust=1,size = 7))
+
+grid.arrange(i1,p1,p2)
+```
+Basal values of glycine are higher in PCOS women and in men if we compare with control women. No differences are observed between obese and non-obese subjects.
+
+Similar relationship is present in postprandial time. Furthermore, basal values are higher than postprnandial levels.
+
+#### L-Threonine_1
+
+```{r}
+meta<-grep("threonine",ignore.case = T,colnames(metabolome))
+meta.mean<-meta[1]
+meta.plts<-meta[-1]
+###plots
+i1<-bp.interaction[meta.mean][[1]]
+p1<-bp.1.vars(metabolome,meta.plts[c(1,3,5)],"Basal  L-Threonine_1" )+theme(axis.text.x = element_text(angle = 45, vjust = 0.9, hjust=1,size = 7))
+p2<-bp.1.vars(metabolome,meta.plts[c(2,4,6)],"Postprandial L-Threonine_1")+ theme(axis.text.x = element_text(angle = 45, vjust = 0.9, hjust=1,size = 7))
+
+grid.arrange(i1,p1,p2)
+```
+
+Basal levels of threonine, are higher in women with PCOS and men, being similar these values in comparison with control women. No difference between obese and obese subjects is observed.
+
+Basal levels are higher than postpranidal levels. With no differences between groups. However, on the last day, these values are similar in comparison with basal levels. 
+
+#### Glycerol_2
+
+```{r}
+meta<-grep("glycerol",ignore.case = T,colnames(metabolome))
+meta.mean<-meta[1]
+meta.plts<-meta[-1]
+###plots
+i1<-bp.interaction[meta.mean][[1]]
+p1<-bp.1.vars(metabolome,meta.plts[c(1,3,5)],"Basal  Glycerol_2" )+theme(axis.text.x = element_text(angle = 45, vjust = 0.9, hjust=1,size = 7))
+p2<-bp.1.vars(metabolome,meta.plts[c(2,4,6)],"Postprandial Glycerol_2")+ theme(axis.text.x = element_text(angle = 45, vjust = 0.9, hjust=1,size = 7))
+
+grid.arrange(i1,p1,p2)
+```
+Glycerol basal levels are higher on obese subjects in comparison with non-obese subjects. PCOS women have higher values in comparison with control women. With similar values compared with men. Looking closely, obese men have lower values than females. 
+
+In general lower levels at postprandial stage are present in comparison with basal levels. There are not differences between groups.
+
+#### L-Serine_1
+
+```{r}
+meta<-grep("serine",ignore.case = T,colnames(metabolome))
+meta.mean<-meta[1]
+meta.plts<-meta[-1]
+###plots
+i1<-bp.interaction[meta.mean][[1]]
+p1<-bp.1.vars(metabolome,meta.plts[c(1,3,5)],"Basal  L-Serine_1" )+theme(axis.text.x = element_text(angle = 45, vjust = 0.9, hjust=1,size = 7))
+p2<-bp.1.vars(metabolome,meta.plts[c(2,4,6)],"Postprandial L-Serine_1")+ theme(axis.text.x = element_text(angle = 45, vjust = 0.9, hjust=1,size = 7))
+
+grid.arrange(i1,p1,p2)
+```
+
+Basal levels of serine are higher in non-obese subjects. PCOS non-obese women show higher concentrations of these metabolite than the other non-obese subjects. Between obese subjects, there are no differences between groups.
+
+Postprandial levels are lower than basal levels. Except on the last day. On that day, similar values are present. PCOS women except on the last day, show higher levels of serine.
+
+
+#### L-Proline_3
+
+```{r}
+meta<-grep("proline",ignore.case = T,colnames(metabolome))
+meta.mean<-meta[1]
+meta.plts<-meta[-1]
+###plots
+i1<-bp.interaction[meta.mean][[1]]
+p1<-bp.1.vars(metabolome,meta.plts[c(1,3,5)],"Basal  L-Proline_3" )+theme(axis.text.x = element_text(angle = 45, vjust = 0.9, hjust=1,size = 7))
+p2<-bp.1.vars(metabolome,meta.plts[c(2,4,6)],"Postprandial L-Proline_3")+ theme(axis.text.x = element_text(angle = 45, vjust = 0.9, hjust=1,size = 7))
+
+grid.arrange(i1,p1,p2)
+```
+
+Basal levels of proline are higher in non-obese control subjects in comparison with non-obese. However, obese PCOS women show higher values than non-obese PCOS women. PCOS women show higher values than the rest of the subjects. 
+
+Postprandial levels are lower than basal levels. Each day values of this metabolite increases. With no differences between groups and obese subjects. The last day, comparable measures are observed between postprandial and basal levels. 
+
+#### beta-Glucose_1
+
+```{r}
+meta<-grep("bglucose",ignore.case = T,colnames(metabolome))
+meta.mean<-meta[1]
+meta.plts<-meta[-1]
+###plots
+i1<-bp.interaction[meta.mean][[1]]
+p1<-bp.1.vars(metabolome,meta.plts[c(1,3,5)],"Basal beta-glucose_1" )+theme(axis.text.x = element_text(angle = 45, vjust = 0.9, hjust=1,size = 7))
+p2<-bp.1.vars(metabolome,meta.plts[c(2,4,6)],"Postprandial beta-glucose_1")+ theme(axis.text.x = element_text(angle = 45, vjust = 0.9, hjust=1,size = 7))
+
+grid.arrange(i1,p1,p2)
+```
+Basal levels of beta_glucose, are higher in PCOS women and men in comparison with control women. Non-obese PCOS women show similar values than obese control women. Obese PCOS women, and have the highest values. And PCOS women have similar values in comparison with men.
+
+Postprandial levels are lower than basal levels. However on the first day, these values are comparable with basal levels. Being higher on obese subjects. And obese PCOS women show the highest values at postprandial levels. PCOS non-obese women present similar values, but lower than normal men.
+
+#### D-Glucose_2
+
+```{r}
+meta<-grep("dglucose",ignore.case = T,colnames(metabolome))
+meta.mean<-meta[1]
+meta.plts<-meta[-1]
+###plots
+i1<-bp.interaction[meta.mean][[1]]
+p1<-bp.1.vars(metabolome,meta.plts[c(1,3,5)],"Basal D-Glucose_2" )+theme(axis.text.x = element_text(angle = 45, vjust = 0.9, hjust=1,size = 7))
+p2<-bp.1.vars(metabolome,meta.plts[c(2,4,6)],"Postprandial D-Glucose_2")+ theme(axis.text.x = element_text(angle = 45, vjust = 0.9, hjust=1,size = 7))
+
+grid.arrange(i1,p1,p2)
+```
+
+Basal levels of D_glucose, are higher in PCOS women and men in comparison with control women. Non-obese PCOS women show similar values than obese control women. Obese PCOS women, and have the highest values. And PCOS women have similar values in comparison with men.
+
+Postprandial levels are lower than basal levels. However on the first day, these values are comparable with basal levels. Being higher on obese subjects. And obese PCOS women show the highest values at postprandial levels. PCOS non-obese women present similar values, but lower than normal men.
+
+#### 1-Methylhistidine_1
+
+
+```{r}
+meta<-grep("methys",ignore.case = T,colnames(metabolome))
+meta.mean<-meta[1]
+meta.plts<-meta[-1]
+###plots
+i1<-bp.interaction[meta.mean][[1]]
+p1<-bp.1.vars(metabolome,meta.plts[c(1,3,5)],"Basal 1-Methylhistidine_1" )+theme(axis.text.x = element_text(angle = 45, vjust = 0.9, hjust=1,size = 7))
+p2<-bp.1.vars(metabolome,meta.plts[c(2,4,6)],"Postprandial 1-Methylhistidine_1")+ theme(axis.text.x = element_text(angle = 45, vjust = 0.9, hjust=1,size = 7))
+
+grid.arrange(i1,p1,p2)
+```
+
+Basal levels of 1-Methylhistidine_1 are higher in obese women in comparison with non-obese women. PCOS women have higher values than control women. Obese PCOS women have similar values than men. No difference between obese and non-obese men are present.
+
+Postprandial levels are lower than basal levels. However on the last day, higher levels are present, even comparable with basal levels. Non-obese PCOS women and men on the second day have similar values, and higher than non-obese women. On the last day, non-obese males show higher values, similar with basal values of healthy control women. Similar values are present on obese females. Non obese females both PCOS and control show similar values. The rest of the days no differences are present. 
+
+#### Tyrosine_1
+
+```{r}
+meta<-grep("tyrosine",ignore.case = T,colnames(metabolome))
+meta.mean<-meta[1]
+meta.plts<-meta[-1]
+###plots
+i1<-bp.interaction[meta.mean][[1]]
+p1<-bp.1.vars(metabolome,meta.plts[c(1,3,5)],"Basal Tyrosine_1" )+theme(axis.text.x = element_text(angle = 45, vjust = 0.9, hjust=1,size = 7))
+p2<-bp.1.vars(metabolome,meta.plts[c(2,4,6)],"Postprandial Tyrosine_1")+ theme(axis.text.x = element_text(angle = 45, vjust = 0.9, hjust=1,size = 7))
+
+grid.arrange(i1,p1,p2)
+```
+Basal levels of tyrosine are higher on obese subjects, being higher in men and PCOS women than control women. 
+
+Postprandial levels are lower in comparison with basal levels. However, the last day, though there are not differences between groups, these values are comparable with basal levels. 
+
+#### L-Phenylalanine_2
+
+```{r}
+meta<-grep("phe",ignore.case = T,colnames(metabolome))
+meta.mean<-meta[1]
+meta.plts<-meta[-1]
+###plots
+i1<-bp.interaction[meta.mean][[1]]
+p1<-bp.1.vars(metabolome,meta.plts[c(1,3,5)],"Basal L-Phenylalanine_2" )+theme(axis.text.x = element_text(angle = 45, vjust = 0.9, hjust=1,size = 7))
+p2<-bp.1.vars(metabolome,meta.plts[c(2,4,6)],"Postprandial L-Phenylalanine_2")+ theme(axis.text.x = element_text(angle = 45, vjust = 0.9, hjust=1,size = 7))
+
+grid.arrange(i1,p1,p2)
+```
+Basal levels of phenilalanine are similar across subjects. However a slightly difference is observed in PCOS women and men, being this values similar but higher than control women.
+
+Postprandial levels are lower than basal levels, except on the last day. Higher than the rest of the days, but still lower than basal levels. On obese subjects, males have the lower value. PCOS women have the higher value on the last day. The rest of the day no differences are present, except on the second day on obese males with the lowest values.
+
+#### L-Tryptophan_4
+
+```{r}
+meta<-grep("tryp",ignore.case = T,colnames(metabolome))
+meta.mean<-meta[1]
+meta.plts<-meta[-1]
+###plots
+i1<-bp.interaction[meta.mean][[1]]
+p1<-bp.1.vars(metabolome,meta.plts[c(1,3,5)],"Basal L-Tryptophan_4" )+theme(axis.text.x = element_text(angle = 45, vjust = 0.9, hjust=1,size = 7))
+p2<-bp.1.vars(metabolome,meta.plts[c(2,4,6)],"Postprandial L-Tryptophan_4")+ theme(axis.text.x = element_text(angle = 45, vjust = 0.9, hjust=1,size = 7))
+
+grid.arrange(i1,p1,p2)
+```
+Basal levels of tryptophan are higher in obese females than non-obese females. Between men there is not observable difference. Though levels in men are higher than females.
+
+Postprandial levels are lower than basal levels. Except on the last day, being higher for non-obese males, and comparable with obese PCOS women. Still lower values than basal levels. 
+
+#### Formate_1
+
+
+```{r}
+meta<-grep("formate",ignore.case = T,colnames(metabolome))
+meta.mean<-meta[1]
+meta.plts<-meta[-1]
+###plots
+i1<-bp.interaction[meta.mean][[1]]
+p1<-bp.1.vars(metabolome,meta.plts[c(1,3,5)],"Basal Formate_1" )+theme(axis.text.x = element_text(angle = 45, vjust = 0.9, hjust=1,size = 7))
+p2<-bp.1.vars(metabolome,meta.plts[c(2,4,6)],"Postprandial Formate_1")+ theme(axis.text.x = element_text(angle = 45, vjust = 0.9, hjust=1,size = 7))
+
+grid.arrange(i1,p1,p2)
+```
+
+Basal levels of formate, have the highest value on healthy control women. However, obese PCOS and obese males have higher values than non-obese subjects. Control women have higher values than PCOS women. PCOS obese women have highly values than men.
+
+Postprandial levels are comparable with basal levels. Being lower on the first and second day. Obese control women show higher values at postprandial stage. 
+
+
+
+## Description of gut microbiome
+
+
+
+Gut microbiome was extracted and analyzed via faces of the subjects. On this dataset only on five subjects they  were not able to analyze their faces. Furthermore, samples were re-coded, but with the same meaning. They analyze the phylum and the genera. We have the reads of the phylum and the genera of the microbiome. They analyzed 282 OTUs ( operational taxonomic units) 69of which they were not capable of identify at genera level. These genus we are going to exclude from the analysis
+
+First of all, let's inspect if the study is compromised by these subjects. We are going to perform chisq-test to observe if there are differences between groups.
+```{r}
+bacteria_file <- file.path(params$folder.data,params$file_microbiota)
+bacteria_phylum.tmp <- (read.xlsx(bacteria_file,sheetIndex = 1))
+bacteria_genera.tmp <- read.xlsx(bacteria_file,sheetIndex = 3)
+str(bacteria_phylum.tmp)
+```
+
+### Process phylum data and sanity check.
+First of all let's process the phylum data. To do that, we need to find out which variables belong to each group. (OBESE and GROUP) Furthermore we have to transpose the data
+
+```{r}
+## which samples are in bacteria
+variables_in_bacteria <- general_data[general_data$Orden %in% bacteria_phylum.tmp$Order,] 
+## add categorical variables.
+bacteria_phylum.tmp$SEX <- variables_in_bacteria$SEX
+bacteria_phylum.tmp$GROUP <- variables_in_bacteria$GROUP
+bacteria_phylum.tmp$OBESE <- variables_in_bacteria$OBESE
+
+```
+
+
+
+```{r}
+(sexo<-table(bacteria_phylum.tmp$SEX))
+
+(sexo.obesos<-table(bacteria_phylum.tmp$SEX,bacteria_phylum.tmp$OBESE))
+
+(subgrupos<-table(bacteria_phylum.tmp$GROUP,bacteria_phylum.tmp$OBESE))
+```
+On this dataset we have 31 females, and 14 males. 15 non-obese females, 16 obese females, 8 non-obese males,  and 7 obese males. 8 healthy control women, 8 obese control women, 7 and 8 non-obese and obese PCOS women and 8,7 non-obese, obese males.
+
+```{r}
+chisq.test(sexo.obesos)
+chisq.test(subgrupos)
+```
+
+There are no differences between groups, thus we can continue our exploratory analysis without concern. After the sanity check analysis, previously we have observed from the `str` function, that tells us the general structure of the data, that some variables are all 0. Thus we are going to remove those variables, and the unknown general.
+
+```{r}
+zero_variables<-apply(bacteria_phylum.tmp, 2,function(x) all(x==0)) ## which phylum have zero reads
+unkown_variables<-grep("ud",colnames(bacteria_phylum.tmp))## which phylum is unkwoun
+bacteria_phylum.tmp2<-bacteria_phylum.tmp[,-c(zero_variables,unkown_variables)] ## remove unkowns and zero reads
+rownames(bacteria_phylum.tmp2)<-bacteria_phylum.tmp2[,1]
+bacteria_phylum<-bacteria_phylum.tmp2[,-1]
+dim(bacteria_phylum)
+```
+
+At the end we have 46 observations and 24 phylum
+Once we have processed phylum data, we are going to process genera data. 
+
+### Process genera data.
+
+```{r}
+str(bacteria_genera.tmp)
+```
+
+On this dataset, the matrix is transposed, thus we are going to transpose again. Furthermore, we need to add rownames and colnames and add `GROUP` and `OBESE` variables. 
+
+
+```{r}
+bacteria_genera.tmp.t<-as.data.frame(t(bacteria_genera.tmp)) ## transpose data
+my_orden <- gsub("X","",rownames(bacteria_genera.tmp.t)) ## ridoff X character from order
+colnames(bacteria_genera.tmp.t)<-bacteria_genera.tmp.t[1,] ## name columns
+bacteria_genera.tmp2<-bacteria_genera.tmp.t[-1,] # remove column as a observation
+bacteria_genera.tmp2$Orden <- my_orden[-1] # add order variable without "sample" character
+rownames(bacteria_genera.tmp2)<-bacteria_genera.tmp2[,1] ## add samples as rows
+bacteria_genera.tmp3<-bacteria_genera.tmp2[,-1] ## remove samples as variable
+## which samples are in the new dataset
+variables_in_bacteria <- general_data[general_data$Orden %in% bacteria_genera.tmp3$Orden,] 
+bacteria_genera.tmp3$GROUP<-variables_in_bacteria$GROUP ## add GROUP variable
+bacteria_genera.tmp3$OBESE <- variables_in_bacteria$OBESE ## add OBESE variable
+zero_variables<-apply(bacteria_genera.tmp3, 2,function(x) all(x==0)) ## which genera have zero reads
+unkown_variables<-grep("ud-",colnames(bacteria_genera.tmp3)) ## which are unkown genera
+bacteria_genera<-bacteria_genera.tmp3[,-c(zero_variables,unkown_variables)] ## remove zeros and unkown variables.
+bacteria_genera[,1:213]<-apply(bacteria_genera[,1:213],2,as.numeric)
+```
+At the end we have 46 samples and 216 genera.
+
+
+### Descriptive analysis of the gut microbiome.
+
+we have to mention that, in order to analyze the data, one has to transform and normalize the data. Here were are explaining the data with the raw reads.
+
+
+In order to plot and make posterior analysis, we have to construct a `phyloseq` object from the phylium(1) and the genera(2)
+
+#### Creating phyloseq object for phylum data
+
+```{r phylum}
+## Creating Otu table
+otumat_phylum<-t(bacteria_phylum[,c(1:20)])
+rownames(otumat_phylum)<-paste0("OTU",1:nrow(otumat_phylum))
+OTU_phylum<-otu_table(otumat_phylum,taxa_are_rows = T)
+## Creating taxa table
+taxmat_phylum<-data.frame(colnames(bacteria_phylum[,c(1:20)]))
+TAX_phylum<-tax_table(taxmat_phylum)
+taxa_names(TAX_phylum)<-paste0("OTU",1:nrow(otumat_phylum))
+colnames(TAX_phylum)<-"Phylum"
+### Creating sample table
+samples<-as.data.frame(rownames(bacteria_phylum))
+samples$GROUP<-variables_in_bacteria$GROUP
+samples$OBESE <- variables_in_bacteria$OBESE
+rownames(samples)<-rownames(bacteria_phylum)
+samples.phylum <- samples[,-1]
+SAM.tmp <- sample_data(samples)
+SAM<-SAM.tmp[,-1]
+### Creating phyloseq object for phylum data
+physeq_phylum <- phyloseq(OTU_phylum,TAX_phylum,SAM)
+```
+
+#### Creating phyloseq object for genera data.
+
+
+```{r genera}
+## Creating Otu table
+otumat_genera<-(t(bacteria_genera[,c(1:213)]))
+rownames(otumat_genera)<-paste0("OTU",1:nrow(otumat_genera))
+OTU_genera<-otu_table(otumat_genera,taxa_are_rows = T)
+## Creating taxa table
+taxmat_genera<-data.frame(colnames(bacteria_genera[,c(1:213)]))
+TAX_genera<-tax_table(taxmat_genera)
+taxa_names(TAX_genera)<-paste0("OTU",1:nrow(otumat_genera))
+colnames(TAX_genera)<-"Genera"
+### Creating sample table
+samples<-as.data.frame(rownames(bacteria_genera))
+samples$GROUP<-variables_in_bacteria$GROUP
+samples$OBESE <- variables_in_bacteria$OBESE
+rownames(samples)<-rownames(bacteria_genera)
+samples.phylum <- samples[,-1]
+SAM.tmp <- sample_data(samples)
+SAM<-SAM.tmp[,-1]
+### Creating phyloseq object for phylum data
+physeq_genera<- phyloseq(OTU_genera,TAX_genera,SAM)
+```
+
+### Plot phylum
+
+```{r plotphylum}
+
+plot_bar(physeq_phylum , x="Phylum", fill="GROUP",facet_grid = ~OBESE)
+
+```
+
+From the phylum data, we observe similar abundance of Firmicutes between obese and non-obese subjects. On obese males this abundance is higher, as well as on obese PCOS women. Less abundance is observed on obese control females. Bacteroidetes are the following phylum with higher abundance. Being higher on non-obese subjects. After that, the following phylum observed is Actinobacteria, with similar abundance on obese and non-obese subjects. Proteobacteria is higher on obese subjects.
+### Plot Genera
+```{r plotgenera}
+plot_bar(physeq_genera,x=OBESE,facet_grid = ~GROUP)
+```
+
+Regarding genus,it cannot be observed due to the high types of genera. But in general, bacteria with less abundance is observed on obese control females, followed by healthy control females. PCOS women and males have similar abundance. Being higher on PCOS women.
+
+```{r}
+merged_physoeq<-merge_phyloseq(physeq_genera,physeq_phylum)
+```
+
+
+
+

@@ -1,0 +1,756 @@
+---
+title: Integration of omics and clinical data of the hormonal, metabolic, inflammatory,
+  and oxidative response in the different macronutrients of the diet
+author: "Edmond Geraud"
+subtitle: '`r params$subtitulo`'
+date: '`r format(Sys.Date(),"%e de %B, %Y")`' 
+output:
+  prettydoc::html_pretty:
+    theme: cayman
+    highlight: github
+    toc: true
+  html_document:
+    toc: true
+    toc_depth: 2
+header-includes:
+  - \usepackage[english]{babel}
+params:
+  file.data: integromics_microbiota.xlsx
+  folder.data: ../../datos
+  general.data: Integromics_1.xlsx
+  subtitulo: Statistical Descriptive analysis of Intestinal Permeability Biomarkers
+geometry: margin=2cm
+---
+
+```{r setup, include=FALSE}
+require(knitr)
+# include this code chunk as-is to set options
+opts_chunk$set(comment = NA, prompt = TRUE, tidy = T, 
+               fig.width = 7, fig.height = 7,echo = TRUE, 
+               message = FALSE, warning = FALSE, cache=TRUE, fig_caption = TRUE)
+Sys.setlocale("LC_TIME", "C")
+```
+
+
+```{r libraries}
+
+list.of.packages <- c("xlsx","kableExtra","dplyr","ggplot2","egg","cowplot","patchwork","gridExtra","UsingR","car","lattice","ggpubr","ggbreak","GGally","reshape2","ggcorrplot","corrplot","rela","ggrepel","factoextra","chemometrics","sparsepca")
+new.packages <- list.of.packages[!(list.of.packages %in% installed.packages()[,"Package"])] ## check for packages not installed 
+if(length(new.packages)) install.packages(new.packages) ## install packages if necessary
+res<-unlist(lapply(list.of.packages, require,character.only = T)) ## load packages needed for the session
+if(any(res==F)){
+  list.of.packages[which(res==F)]  ## show those package if you have troubles to install.
+}
+
+list.of.bioc.packages <- c("phyloseq","pcaMethods")
+new.packages.bioc <- list.of.packages[!(list.of.bioc.packages %in% installed.packages()[,"Package"])]
+if(length(new.packages.bioc)) BiocManager::install(new.packages.bioc)
+res.bioc <- unlist(lapply(list.of.bioc.packages, require,character.only = T)) 
+if(any(res.bioc==F)){
+  list.of.packages[which(res.bioc==F)]  ## show those package if you have troubles to install.
+}
+```
+
+```{r funciones}
+resumen<-function(x){c(round(mean(x),4),round(sd(x),4))} # Function that help us to summarize the data in mean and sd values
+lowerFn <- function(data, mapping, method = "lm", ...) {
+  p <- ggplot(data = data, mapping = mapping) +
+    geom_point(colour = "blue") +
+    geom_smooth(method = method, color = "red", ...)
+  p
+}
+
+
+plotPCA_scores <- function (X,factor, title, size = 1.5, glineas = 0.25,center_,scale_,labels) {
+
+    
+       pcX <- prcomp(X,center=center_,scale. = scale_)
+    X.scores <- pcX$x
+    rot <- round(pcX$sdev^2/sum(pcX$sdev^2)*100,2)
+
+  # scores
+  X.scores <- as.data.frame(X.scores)
+  Group <- factor[[1]]
+  Group2<-factor[[2]]
+  colores<-1:length(levels(Group))
+   # main plot
+   p1 <- ggplot(X.scores,aes(x=PC1, y=PC2)) +
+     theme_classic() +
+     geom_hline(yintercept = 0, color = "gray70") +
+     geom_vline(xintercept = 0, color = "gray70") +
+     geom_point(aes(color = Group,shape=Group2), alpha = 0.55, size = 3) +
+     coord_cartesian(xlim = c(min(X.scores[,1])-5,max(X.scores[,1])+5)) +
+     scale_fill_discrete(name = "Group")
+   # avoiding labels superposition
+   
+      grafico<- p1 + geom_text_repel(aes(y = PC2 + 0.25, label = labels),segment.size = 0.25, size = size) + 
+     labs(x = c(paste("PC1",rot[1],"%")),y=c(paste("PC2",rot[2],"%"))) +  
+     ggtitle(paste("Principal Component Analysis for: ",title,sep=" "))+ 
+     theme(plot.title = element_text(hjust = 0.5)) +
+     scale_color_manual(values=colores)
+     
+ 
+  
+return(list(pcX,grafico))}
+
+plotPCA_nipals <- function (pcX,factor, title, size = 1.5, glineas = 0.25,labels,plot.scores=T) {
+
+    X.scores <- scores(pcX)
+    X.loads <- loadings(pcX)
+    rot <- round(sDev(pcX)/sum(sDev(pcX))*100,2)
+  if(plot.scores==T){
+  # scores
+  X.scores <- as.data.frame(X.scores)
+  Group <- factor[[1]]
+  Group2<-factor[[2]]
+  colores<-1:length(levels(Group))
+   # main plot
+   p1 <- ggplot(X.scores,aes(x=PC1, y=PC2)) +
+     theme_classic() +
+     geom_hline(yintercept = 0, color = "gray70") +
+     geom_vline(xintercept = 0, color = "gray70") +
+     geom_point(aes(color = Group,shape=Group2), alpha = 0.55, size = 3) +
+     coord_cartesian(xlim = c(min(X.scores[,1]),max(X.scores[,1]))) +
+     scale_fill_discrete(name = "Group")
+   # avoiding labels superposition
+   
+      grafico<- p1 + geom_text_repel(aes(y = PC2 + 0.25, label = labels),segment.size = 0.25, size = size) + 
+     labs(x = c(paste("PC1",rot[1],"%")),y=c(paste("PC2",rot[2],"%"))) +  
+     ggtitle(paste("Principal Component Analysis for: ",title,sep=" "))+ 
+     theme(plot.title = element_text(hjust = 0.5)) +
+     scale_color_manual(values=colores)
+  }else{
+    
+   X.loads <- as.data.frame(X.loads)
+   # main plot
+   p1 <- ggplot(X.loads,aes(x=PC1, y=PC2)) +
+     theme_classic() +
+     geom_hline(yintercept = 0, color = "gray70") +
+     geom_vline(xintercept = 0, color = "gray70") +
+     geom_point(aes(color = "gray70"), alpha = 0.55, size = 3) +
+     coord_cartesian(xlim = c(min(X.loads[,1]),max(X.loads[,1]))) 
+   # avoiding labels superposition
+   
+      grafico<- p1 + geom_text_repel(aes(label = labels),segment.size = 0.25, size = size) + 
+     labs(x = c(paste("PC1",rot[1],"%")),y=c(paste("PC2",rot[2],"%"))) +  
+     ggtitle(paste("Principal Component Analysis for: ",title,sep=" "))+ 
+     theme(plot.title = element_text(hjust = 0.5))
+    
+  }
+
+return(list(pcX,grafico))
+}
+plotPCA_methods <- function (X.list,factor, title1,title2, size = 1.5, glineas = 0.25,labels.scores,labels.loads) {
+
+    X.scores <- X.list$scores
+    X.loadings <- X.list$loadings
+    colnames(X.scores)<-paste0("PC",1:dim(X.scores)[2])
+    
+    colnames(X.loadings) <- paste0("PC",1:dim(X.loadings)[2])
+    varianza<-as.data.frame( X.list$var)
+    varianza$PC <- paste0("PC",1:dim(X.loadings)[2])
+    colnames(varianza)<-c("varianza","PC")
+  # scores
+  X.scores <- as.data.frame(X.scores)
+  Group <- factor[[1]]
+  Group2<-factor[[2]]
+  colores<-1:length(levels(Group))
+   # main plot
+   p1 <- ggplot(X.scores,aes(x=PC1, y=PC2)) +
+     theme_classic() +
+     geom_hline(yintercept = 0, color = "gray70") +
+     geom_vline(xintercept = 0, color = "gray70") +
+     geom_point(aes(color = Group,shape=Group2), alpha = 0.55, size = 3) +
+     coord_cartesian(xlim = c(min(X.scores[,1]),max(X.scores[,1]))) +
+     scale_fill_discrete(name = "Group")
+   # avoiding labels superposition
+   
+      grafico<- p1 + geom_text_repel(aes(y = PC2, label = labels.scores),segment.size = 0.25, size = size) + 
+     labs(x = c(paste("PC1",round(varianza[1,1],2),"%")),y=c(paste("PC2",round(varianza[2,1],2),"%"))) +  
+     ggtitle(paste("Principal Component Analysis for: ",title1,sep=" "))+ 
+     theme(plot.title = element_text(hjust = 0.5)) +
+     scale_color_manual(values=colores)
+
+   X.loadings <- as.data.frame(X.loadings)
+   # main plot
+   p2 <- ggplot(X.loadings,aes(x=PC1, y=PC2)) +
+     theme_classic() +
+     geom_hline(yintercept = 0, color = "gray70") +
+     geom_vline(xintercept = 0, color = "gray70") +
+     geom_point(aes(color = "gray70"), alpha = 0.55, size = 3) +
+     coord_cartesian(xlim = c(min(X.loadings[,1]),max(X.loadings[,1]))) 
+   # avoiding labels superposition
+   
+      grafico2<- p2 + geom_text_repel(aes(label = labels.loads),segment.size = 0.25, size = size) + 
+     labs(x = c(paste("PC1",round(varianza[1,1],2),"%")),y=c(paste("PC2",round(varianza[2,1],2),"%"))) +  
+     ggtitle(paste("Principal Component Analysis for: ",title2,sep=" "))+ 
+     theme(plot.title = element_text(hjust = 0.5))+ theme(legend.position = "none")
+    
+  graficos <- list(grafico,grafico2)
+return(graficos)
+}
+```
+
+
+# Summary of the univariate descrpitve analysis.
+
+## Overall study.
+
+The data comprises 53 subjects, which are divided into 34 females and 19 males. From the 34 females, 18 are non obese and 16 obese. And 10 non obese males and 9 obese males. The 18 non obese females are divided into 9 PCOS and 9 healthy. The 16 obese females are divided further into 8 PCOS and 8 non PCOS.
+
+A sanity check of the study was performed to observed possibly differences between the groups. No differences were found.
+Descriptive numerical tables were performed on each data-set except on the microbiome. Numerical descriptive tables only contain the mean and the standard deviation.
+
+For each numerical variable (all except the ones that describes the groups) their distribution were analyzed as a whole, without taking into account the groups (obese, sex and PCOS).
+
+It has to be mentioned that no correlation between variables on the different data types were performed. Only uni variate statistical analysis on each data set was performed.
+
+Permeability markers, and some clinical biomarkers, were analyzed at basal and postprandial times. The first day of the study corresponds to the glucose oral load, the second to the lipids and the third to the proteins.
+
+1. **Clinical data: ** Comprises 63 variables.  The first variable is the order of the data, the second variable is the sample name, and the next 5 variables belong to sex, group (female, male, PCOS), obese (whether obese or not obese), age and BMI, WC, WHR. And 54 biomarkers. From those 54 biomarkers, there are testosterone, estradiol, its ratio, HOMA-IR, ISI, cholesterol, HDL , LDL, insulin and glucose. Sex steroids, the ratio, HOMA-IR and ISI are only  calculated at basal levels. The other variables are calculated also at postprandial level. Furthemore the levels of all these variables the mean basal value for each day of the study is computed.
+
+2. **Permability Biomarkers:** Apart from the categorical variables, we have sCD14, LBP, zonulin and succinate. Each variable the mean basal value is computed,as well as the basal values for each day and the postprandial stage. Succinate is more like a metabolite, however, it was calculated in other units, and we do not know how to include this metablolite. ( No units are specified on this data set)
+
+3. **Metabolome:** The data includes only the sample and the order. And 261 variables. From these variables, only 37 were actually metabolites. The other variables belong to the mean basal values, the basal values for each day, and the postprandial values for each day.
+
+4.**Microbiome.** Here, we have two sets of data. Reads from the several phylum and the genus. Only 5 subjects could not be able to analyze their faces. We performed a sanity check of the data to observe if this variation in the data affected the study. It did not.
+
+
+
+## Description of gut microbiome
+
+
+
+Gut microbiome was extracted and analyzed via faces of the subjects. On this dataset only on five subjects they  were not able to analyze their faces. Furthermore, samples were re-coded, but with the same meaning. They analyze the phylum and the genera. We have the reads of the phylum and the genera of the microbiome. They analyzed 282 OTUs ( operational taxonomic units) 69of which they were not capable of identify at genera level. These genus we are going to exclude from the analysis
+
+First of all, let's inspect if the study is compromised by these subjects. We are going to perform chisq-test to observe if there are differences between groups.
+
+```{r}
+general <- file.path(params$folder.data,params$general.data)
+general_data<-read.xlsx(general,sheetIndex = 1) ## data
+general_data$SEX <- factor(general_data$SEX,levels=c(0,2),labels = c("Female","Male"))
+general_data$OBESE <- factor(general_data$OBESE,levels=c(0,1),labels = c("No Obese","Obese"))
+general_data$GROUP <- factor(general_data$GROUP,levels=c(0,1,2),labels = c("Female","PCOS","Male"))
+GROUP <- general_data$GROUP
+OBESE <- general_data$OBESE
+bacteria_file <- file.path(params$folder.data,params$file.data)
+bacteria_phylum.tmp <- (read.xlsx(bacteria_file,sheetIndex = 2))
+bacteria_genera.tmp <- read.xlsx(bacteria_file,sheetIndex = 4)
+str(bacteria_phylum.tmp)
+```
+
+
+### Process phylum data and sanity check.
+First of all let's process the phylum data. To do that, we need to find out which variables belong to each group. (OBESE and GROUP) Furthermore we have to transpose the data
+
+```{r}
+## which samples are in bacteria
+variables_in_bacteria <- general_data[general_data$Orden %in% bacteria_phylum.tmp$Order,] 
+## add categorical variables.
+bacteria_phylum.tmp$SEX <- variables_in_bacteria$SEX
+bacteria_phylum.tmp$GROUP <- variables_in_bacteria$GROUP
+bacteria_phylum.tmp$OBESE <- variables_in_bacteria$OBESE
+```
+
+
+
+```{r}
+(sexo<-table(bacteria_phylum.tmp$SEX))
+
+(sexo.obesos<-table(bacteria_phylum.tmp$SEX,bacteria_phylum.tmp$OBESE))
+
+(subgrupos<-table(bacteria_phylum.tmp$GROUP,bacteria_phylum.tmp$OBESE))
+```
+
+
+```{r}
+chisq.test(sexo.obesos)
+chisq.test(subgrupos)
+```
+
+
+
+There are no differences between groups, thus we can continue our exploratory analysis without concern. After the sanity check analysis, previously we have observed from the `str` function, that tells us the general structure of the data, that some variables are all 0. Thus we are going to remove those variables, and the unknown general.
+
+```{r}
+zero_variables<-apply(bacteria_phylum.tmp, 2,function(x) all(x==0)) ## which phylum have zero reads
+unkown_variables<-grep("ud",colnames(bacteria_phylum.tmp))## which phylum is unkwoun
+bacteria_phylum.tmp2<-bacteria_phylum.tmp[,-c(zero_variables,unkown_variables)] ## remove unkowns and zero reads
+rownames(bacteria_phylum.tmp2)<-bacteria_phylum.tmp2[,1]
+bacteria_phylum.tmp3<-bacteria_phylum.tmp2[,-c(1,22)]
+zeros <- which(colSums(bacteria_phylum.tmp3[,-c(21:23)])==0)
+bacteria_phylum<-bacteria_phylum.tmp3[,-zeros]
+bacteria_phylum
+```
+
+```{r}
+
+phylum.variables <- bacteria_phylum ## remove samples names and order from the summary
+
+
+phylum.sum<-phylum.variables %>%group_by(GROUP,OBESE) %>% 
+  summarise(across(where(is.numeric),resumen),n=n()) %>%mutate_if(is.numeric, format, 4) # Group the data by variable GROUP and OBESE
+
+d.f<-as.data.frame(t(phylum.sum))[c(nrow(t(phylum.sum)),1:(nrow(t(phylum.sum))-1)),] # transpose the data for visualization purposes and get rid off the N value for same purposes
+
+# name of each variable.
+nombre_phylum_variable<-colnames(bacteria_phylum)[-c(21:23)]
+
+colnames(d.f) <- rep(c("Mean","SD"),6)
+d.f_final <- d.f[-c(1:3),]
+## ATTENION! Because assining left hand expression is 
+## complicated, just for one table, be careful if we put another data-set
+## For showing the number of subjects by group
+as.data.frame(d.f_final)
+kbl(d.f_final,digits=c(rep(4,12),0)) %>%
+  kable_classic_2() %>%
+    add_header_above(c(" "=1,
+                      "9"= 2,
+                      "8"= 2,
+                      "9"= 2,
+                      "8"= 2,
+                      "10"= 2,
+                      "9"= 2
+ )) %>%
+      add_header_above(c( " "=1,
+                     "No Obese" = 2,
+                     "Obese" =2,
+                     "No Obese" = 2,
+                     "Obese" =2,
+                     "No Obese" = 2,
+                     "Obese" =2)) %>%
+  add_header_above(c(" "=1,
+                      "Control Females" = 4, 
+                     "PCOS"=4,
+                     "Control Males"=4)) 
+
+
+```
+From  the 24 phylum, we ended up with 17 phylum. 
+```{r}
+(p<-ncol(bacteria_phylum))
+(n<-nrow(bacteria_phylum))
+
+```
+We proceed to observe the distribution of the relativa abundance. 
+
+```{r}
+variables <- colnames(bacteria_phylum)
+hist.list.meta<-list() ## initizalize a list of the histogram
+## plot all histograms via loop
+for(i in 1:length(variables)){
+  if(variables[i]=="Order"||variables[i]=="Sample"){
+    next
+  }else if(class(bacteria_phylum[,i])=="factor"){
+    next
+  }
+  variable <- variables[i] ## name of the variable to plot
+  titulo <- colnames(bacteria_phylum)[i] # title of the varialbe
+  
+  breaks <- pretty(range(bacteria_phylum[,variable]), 
+                   n = nclass.Sturges(bacteria_phylum[,variable]), min.n = 1)# make pretty histogram by appropiate bins
+  bwidth <- breaks[2]-breaks[1] ## bin width
+
+  ## plot
+  hist.list.meta[[i]]<-ggplot(bacteria_phylum,aes_string(x=variable))+geom_histogram(aes(y=..density..),
+                                                        binwidth =bwidth,colour="black")+geom_density(alpha=.2, fill="lightblue")+xlab(titulo)+ylab("")
+
+
+}
+
+
+bp.interaction <- list() ## intialize boxplot list interaction
+for(i in 1:length(variables)){
+  if(class(variables[i])=="factor"){
+    next
+  }
+  titulo <- colnames(bacteria_phylum)[i]
+  variable <- variables[i]
+  bp.interaction[[i]]<-ggplot(bacteria_phylum,aes_string(x=bacteria_phylum$GROUP,y=variable,interaction(bacteria_phylum$GROUP),fill=bacteria_phylum$OBESE))+geom_boxplot()+ylab(titulo)+xlab("")+  theme(legend.title=element_blank())
+
+}
+```
+
+### Distributions of the relative abundance of the phylum
+
+
+From the distributions, one can observe that the phylum with most abundance are Firmicutes, Bacteriodetes, proteobacteria, actinobacteria, verrucromicrobia, Candidus Saccharibactea. Also this observation can be made from the descriptive table. 
+
+```{r}
+do.call(grid.arrange,hist.list.meta[1:5])
+do.call(grid.arrange,hist.list.meta[6:10])
+do.call(grid.arrange,hist.list.meta[11:15])
+do.call(grid.arrange,hist.list.meta[16:17])
+```
+### Univariate analysis
+
+```{r}
+
+###plots
+grid.arrange(bp.interaction[[1]],bp.interaction[[2]],bp.interaction[[4]])
+
+```
+
+```{r}
+grid.arrange(bp.interaction[[4]],bp.interaction[[5]],bp.interaction[[6]])
+```
+
+```{r}
+grid.arrange(bp.interaction[[7]],bp.interaction[[8]],bp.interaction[[9]])
+```
+
+```{r}
+grid.arrange(bp.interaction[[10]],bp.interaction[[11]],bp.interaction[[12]])
+```
+
+```{r}
+grid.arrange(bp.interaction[[13]],bp.interaction[[14]],bp.interaction[[15]])
+```
+
+```{r}
+grid.arrange(bp.interaction[[16]],bp.interaction[[15]])
+```
+
+### Multivariate analysis
+
+```{r}
+X<-bacteria_phylum[,1:17]
+res <- plotPCA_scores(X,factor = list(bacteria_phylum$GROUP,bacteria_phylum$OBESE),title = "phylum (scores)",labels = rownames(bacteria_phylum),center_ = T,scale_ = F)
+res[[2]]
+```
+
+
+```{r}
+  fviz_pca_var(res[[1]],
+    col.var = "contrib", # Color by contributions to the PC
+    gradient.cols = c("#00AFBB", "#E7B800", "#FC4E07"),
+
+  repel = TRUE
+# Avoid text overlapping
+)
+```
+
+
+
+## Process genera file
+```{r}
+bacteria_genera.tmp.t <- t(bacteria_genera.tmp)
+colnames(bacteria_genera.tmp.t)<-bacteria_genera.tmp.t[1,]
+bacteria_genera.tmp.df<-as.data.frame(bacteria_genera.tmp.t[-1,])
+```
+
+```{r}
+str(bacteria_genera.tmp.df)
+```
+
+```{r}
+bacteria_genera.tmp.df[,-1]<-apply(bacteria_genera.tmp.df[,-1], 2, as.numeric)
+w<-which(colSums(bacteria_genera.tmp.df[,-1])==0)
+ud <- grep("^ud-",colnames(bacteria_genera.tmp.df))
+bacteria_genera<-bacteria_genera.tmp.df[,-ud]
+dim(bacteria_genera)
+bacteria_genera$GROUP <- variables_in_bacteria$GROUP
+bacteria_genera$OBESE <-  variables_in_bacteria$OBESE
+```
+
+```{r}
+X<-bacteria_genera[,2:214]
+
+```   
+
+
+
+
+
+
+
+
+```{r}
+
+genera.variables <- bacteria_genera ## remove samples names and order from the summary
+
+
+genera.sum<-genera.variables %>%group_by(GROUP,OBESE) %>% 
+  summarise(across(where(is.numeric),resumen),n=n()) %>%mutate_if(is.numeric, format, 4) # Group the data by variable GROUP and OBESE
+
+d.f<-as.data.frame(t(genera.sum))[c(nrow(t(genera.sum)),1:(nrow(t(genera.sum))-1)),] # transpose the data for visualization purposes and get rid off the N value for same purposes
+
+# name of each variable.
+nombre_genera_variable<-colnames(genera.variables)[-c(18:19)]
+
+colnames(d.f) <- rep(c("Mean","SD"),6)
+d.f_final <- d.f[-c(1:3),]
+## ATTENION! Because assining left hand expression is 
+## complicated, just for one table, be careful if we put another data-set
+## For showing the number of subjects by group
+as.data.frame(d.f_final)
+kbl(d.f_final,digits=c(rep(4,12),0)) %>%
+  kable_classic_2() %>%
+    add_header_above(c(" "=1,
+                      "9"= 2,
+                      "8"= 2,
+                      "9"= 2,
+                      "8"= 2,
+                      "10"= 2,
+                      "9"= 2
+ )) %>%
+      add_header_above(c( " "=1,
+                     "No Obese" = 2,
+                     "Obese" =2,
+                     "No Obese" = 2,
+                     "Obese" =2,
+                     "No Obese" = 2,
+                     "Obese" =2)) %>%
+  add_header_above(c(" "=1,
+                      "Control Females" = 4, 
+                     "PCOS"=4,
+                     "Control Males"=4)) 
+
+
+
+```
+Let's investigate which genera are only in one sample
+
+```{r}
+X <- bacteria_genera[,-c(1,215,216)]
+w<-which(colSums(X==0)==45)
+rownames(X)<-variables_in_bacteria$Paciente
+X[,w]
+
+rownames(X)[apply(X[,w], 2, function(x) which(x!=0))]
+
+```
+
+
+```{r}
+X[,-w]
+
+```
+```{r}
+d.f_means <- d.f_final[,c(1,3,5,7,9,11)]
+d.f_means.num<-as.data.frame(apply(d.f_means, 2, as.numeric))
+d.f_genera <- as.data.frame(rowSums(d.f_means.num))
+d.f_genera$genero<-rownames(d.f_means)
+colnames(d.f_genera)<-c("abundance","genero")
+d.f_genera.ti <- as_tibble(d.f_genera)
+d.f_genera.ti %>% arrange(abundance)
+```
+
+
+
+
+```{r}
+colnames(bacteria_genera)<-gsub(" ","_",colnames(bacteria_genera))
+variables <- colnames(bacteria_genera)
+
+hist.list.meta<-list() ## initizalize a list of the histogram
+## plot all histograms via loop
+# for(i in 1:length(variables)){
+#   if(variables[i]=="Order"||variables[i]=="Sample"){
+#     next
+#   }else if(class(bacteria_genera[,i])=="factor"){
+#     next
+#   }
+#   variable <- variables[i] ## name of the variable to plot
+#   titulo <- colnames(bacteria_genera)[i] # title of the varialbe
+#   
+#   breaks <- pretty(range(bacteria_genera[,variable]), 
+#                    n = nclass.Sturges(bacteria_genera[,variable]), min.n = 1)# make pretty histogram by appropiate bins
+#   bwidth <- breaks[2]-breaks[1] ## bin width
+# 
+#   ## plot
+#   hist.list.meta[[i]]<-ggplot(bacteria_genera,aes_string(x=variable))+geom_histogram(aes(y=..density..),
+#                                                         binwidth =bwidth,colour="black")+geom_density(alpha=.2, fill="lightblue")+xlab(titulo)+ylab("")
+# 
+# 
+# }
+
+
+bp.interaction <- list() ## intialize boxplot list interaction
+for(i in 1:length(variables)){
+  if(class(variables[i])=="factor"){
+    next
+  }
+  titulo <- colnames(bacteria_genera)[i]
+  variable <- variables[i]
+  bp.interaction[[variables[i]]]<-ggplot(bacteria_genera,aes_string(x=bacteria_genera$GROUP,y=variable,interaction(bacteria_genera$GROUP),fill=bacteria_genera$OBESE))+geom_boxplot()+ylab(titulo)+xlab("")+  theme(legend.title=element_blank())
+
+}
+```
+
+```{r}
+grep("faeca",variables,ignore.case = T)
+```
+
+```{r}
+grid.arrange(bp.interaction[["Faecalibacterium"]],
+             bp.interaction[["Ruminococcus"]],
+             bp.interaction[["Bacteroides"]]
+             )
+```
+
+
+```{r}
+X <- bacteria_genera[,-c(1,215,216)]
+
+
+
+```
+
+
+
+```{r}
+grupos <- list(variables_in_bacteria$GROUP,variables_in_bacteria$OBESE)
+```
+
+
+
+Because we are leading with more variables than observations, we are going to perform three approaches.
+1. Simply by computing a PCA on the traspose data (prcomp and princomp)
+2. Nipals algorithm
+3. Sparse PCA
+
+
+### prcomp and princomp
+```{r}
+pcxt <- prcomp(t(X),center=T,scale=F)
+list.pcxt <- list(scores=pcxt$rot,loadings=pcxt$x,var=100*pcxt$sdev^2/sum(pcxt$sdev^2))
+```
+
+```{r}
+graficos <- plotPCA_methods(list.pcxt,factor = grupos,title1="scores ",title2 ="loadings",labels.scores = rownames(X),labels.loads=colnames(X))
+graficos
+# graficos[[2]]
+```
+
+
+
+### NIPALS
+```{r}
+n<-nrow(X)
+pcx.nipals <- chemometrics::nipals(X,a=ncol(X),it = 200)
+pcx.nipals_variance <- 100*diag(t(pcx.nipals$T)%*%pcx.nipals$T)/sum(diag(t(pcx.nipals$T)%*%pcx.nipals$T))
+list.nipals_1 <-list(scores=pcx.nipals$T,loadings=pcx.nipals$P,varianza=pcx.nipals_variance)
+```
+
+
+```{r}
+graficos <- plotPCA_methods(list.nipals_1,factor = grupos,title1="scores ",title2 ="loadings",labels.scores = rownames(X),labels.loads=colnames(X))
+graficos[[1]]
+graficos[[2]]
+```
+
+
+
+### Sparse PCA
+
+Let's create a function to fix beta andcontrol sparsity.
+```{r}
+perf <- function(X,X.pred){
+
+  return(abs(norm(X-X.pred,type="F"))/norm(X,type="F"))
+  
+}
+
+spca.perf <- function(X,fix_parameter,transpose,scale.){
+  
+  parameter <-  seq(1e-10,1,0.01)
+  perf.vector <- vector(mode="numeric",length=length(parameter))
+  if(fix_parameter=="alpha"){
+    
+    beta <- parameter
+    alpha <- 1e-4
+  if(transpose==F){
+    
+    for( i in 1:length(parameter)){
+       perf.vector[i]<-perf(as.matrix((X)),t(spca((X),alpha=alpha,beta=beta[i],center=T,scale=scale.,verbose = F,k=ncol(X))$loadings))
+  
+    }
+    beta <- beta[which.min(perf.vector)]
+    pcx<- spca(X,alpha=alpha,beta=beta,verbose=F,center=T,scale=scale.,k=ncol(X))
+    
+  }else if(transpose==T){
+    
+        for( i in 1:length(parameter)){
+       perf.vector[i]<-perf(as.matrix(t(X)),(spca(t(X),alpha=alpha,beta=beta[i],verbose = F,center=T,scale=scale.,k=ncol(X))$scores))
+  
+    }
+    beta <- beta[which.min(perf.vector)]
+    pcx<- spca(t(X),alpha=alpha,beta=beta,verbose=F,center=T,scale=scale.,k=ncol(X))
+  }
+    
+  }else if(fix_parameter=="beta"){
+  
+    alpha <- parameter
+    beta <- 1e-4
+      if(transpose==F){
+    
+    for( i in 1:length(parameter)){
+       perf.vector[i]<-perf(as.matrix((X)),t(spca((X),alpha=alpha[i],beta=beta,center=T,scale=scale.,verbose = F,k=ncol(X))$loadings))
+  
+    }
+    alpha<- alpha[which.min(perf.vector)]
+    pcx<- spca(X,alpha=alpha,beta=beta,verbose=F,center=T,scale=scale.,k=ncol(X))
+  }else if(transpose==T){
+    
+        for( i in 1:length(parameter)){
+       perf.vector[i]<-perf(as.matrix(t(X)),(spca(t(X),alpha=alpha[i],center=T,scale=scale.,beta=beta,verbose = F,k=ncol(X))$scores))
+  
+    }
+
+    alpha<- alpha[which.min(perf.vector)]
+    pcx<- spca(t(X),alpha=alpha,beta=beta,center=T,scale=scale.,verbose=F,k=ncol(X))    
+  }
+    
+  
+  }
+  
+  return(pcx)
+}
+
+```
+
+
+```{r}
+pcx.a <- spca.perf(X,"beta",transpose = F,scale. = T)
+pcx.a.t <- spca.perf(X,"beta",transpose=T,scale. = T)
+pcx.b <- spca.perf(X,"alpha",transpose = F,scale. = T)
+pcx.b.t <- spca.perf(X,"alpha",transpose=T,scale. = F)
+```
+
+
+```{r}
+lista.spca.b <- list(loadings=(pcx.b$loadings),scores = t(pcx.b$scores),
+                     var=100*round(pcx.b$eigenvalues/sum(pcx.b$eigenvalues),2))
+lista.spca.b.t <- list(loadings=(pcx.b.t$scores),scores = pcx.b.t$loadings,
+                     var=100*round(pcx.b.t$eigenvalues/sum(pcx.b.t$eigenvalues),2))
+
+
+lista.spca.a <- list(loadings=(pcx.a$loadings),scores = t(pcx.a$scores),
+                     var=100*round(pcx.a$eigenvalues/sum(pcx.a$eigenvalues),2))
+lista.spca.a.t <- list(loadings=(pcx.a.t$scores),scores = pcx.a.t$loadings,
+                     var=100*round(pcx.a.t$eigenvalues/sum(pcx.a.t$eigenvalues),2))
+
+
+```
+
+
+```{r}
+g1<-plotPCA_methods(lista.spca.b,grupos,title1="beta scores sparse",title2 = "beta loads sparse",
+                labels.loads = colnames(X),labels.scores =rownames(X))
+g1[[1]]
+```
+
+
+
+
+```{r}
+g2 <- plotPCA_methods(lista.spca.b.t,grupos,title1="beta scores sparse T",title2 = "beta loads sparse T",
+                labels.loads = colnames(X),labels.scores = rownames(X))
+
+g2[[1]]
+```
+
+
+
+

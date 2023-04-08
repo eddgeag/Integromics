@@ -1,0 +1,1182 @@
+---
+title: Integration of omics and clinical data of the hormonal, metabolic, inflammatory,
+  and oxidative response in the different macronutrients of the diet
+author: "Edmond Geraud"
+subtitle: '`r params$subtitulo`'
+date: '`r format(Sys.Date(),"%e de %B, %Y")`' 
+output:
+  prettydoc::html_pretty:
+    theme: cayman
+    highlight: github
+    toc: true
+  html_document:
+    toc: true
+    toc_depth: 2
+header-includes:
+  - \usepackage[english]{babel}
+params:
+  file.data: integromics_microbiota.xlsx
+  folder.data: ../../datos
+  general.data: Integromics_1.xlsx
+  subtitulo: Statistical Descriptive analysis of the Mircrobiome
+geometry: margin=2cm
+---
+
+```{r setup, include=FALSE}
+require(knitr)
+# include this code chunk as-is to set options
+opts_chunk$set(comment = NA, prompt = TRUE, tidy = T, 
+               fig.width = 7, fig.height = 7,echo = TRUE, 
+               message = FALSE, warning = FALSE, cache=TRUE, fig_caption = TRUE)
+Sys.setlocale("LC_TIME", "C")
+```
+
+# Summary of the univariate descrpitve analysis.
+
+## Overall study.
+
+The data comprises 53 subjects, which are divided into 34 females and 19 males. From the 34 females, 18 are non obese and 16 obese. And 10 non obese males and 9 obese males. The 18 non obese females are divided into 9 PCOS and 9 healthy. The 16 obese females are divided further into 8 PCOS and 8 non PCOS.
+
+A sanity check of the study was performed to observed possibly differences between the groups. No differences were found.
+Descriptive numerical tables were performed on each data-set except on the microbiome. Numerical descriptive tables only contain the mean and the standard deviation.
+
+For each numerical variable (all except the ones that describes the groups) their distribution were analyzed as a whole, without taking into account the groups (obese, sex and PCOS).
+
+It has to be mentioned that no correlation between variables on the different data types were performed. Only uni variate statistical analysis on each data set was performed.
+
+Permeability markers, and some clinical biomarkers, were analyzed at basal and postprandial times. The first day of the study corresponds to the glucose oral load, the second to the lipids and the third to the proteins.
+
+1. **Clinical data: ** Comprises 63 variables.  The first variable is the order of the data, the second variable is the sample name, and the next 5 variables belong to sex, group (female, male, PCOS), obese (whether obese or not obese), age and BMI, WC, WHR. And 54 biomarkers. From those 54 biomarkers, there are testosterone, estradiol, its ratio, HOMA-IR, ISI, cholesterol, HDL , LDL, insulin and glucose. Sex steroids, the ratio, HOMA-IR and ISI are only  calculated at basal levels. The other variables are calculated also at postprandial level. Furthemore the levels of all these variables the mean basal value for each day of the study is computed.
+
+2. **Permability Biomarkers:** Apart from the categorical variables, we have sCD14, LBP, zonulin and succinate. Each variable the mean basal value is computed,as well as the basal values for each day and the postprandial stage. Succinate is more like a metabolite, however, it was calculated in other units, and we do not know how to include this metablolite. ( No units are specified on this data set)
+
+3. **Metabolome:** The data includes only the sample and the order. And 261 variables. From these variables, only 37 were actually metabolites. The other variables belong to the mean basal values, the basal values for each day, and the postprandial values for each day.
+
+4.**Microbiome.** Here, we have two sets of data. Reads from the several phylum and the genus. Only 5 subjects could not be able to analyze their faces. We performed a sanity check of the data to observe if this variation in the data affected the study. It did not.
+
+
+
+## Description of gut microbiome
+
+
+
+Gut microbiome was extracted and analyzed via faces of the subjects. On this dataset only on five subjects they  were not able to analyze their faces. Furthermore, samples were re-coded, but with the same meaning. They analyze the phylum and the genera. We have the reads of the phylum and the genera of the microbiome. They analyzed 282 OTUs ( operational taxonomic units) 69of which they were not capable of identify at genera level. These genus we are going to exclude from the analysis
+
+
+## Set the environment
+
+```{r libraries}
+
+list.of.packages <- c("xlsx","kableExtra","dplyr","ggplot2","egg","cowplot","patchwork","gridExtra","UsingR","car","lattice","ggpubr","ggbreak","GGally","reshape2","ggcorrplot","corrplot","rela","ggrepel","factoextra","chemometrics","sparsepca","vegan","ca","ade4")
+new.packages <- list.of.packages[!(list.of.packages %in% installed.packages()[,"Package"])] ## check for packages not installed 
+if(length(new.packages)) install.packages(new.packages) ## install packages if necessary
+res<-unlist(lapply(list.of.packages, require,character.only = T)) ## load packages needed for the session
+if(any(res==F)){
+  list.of.packages[which(res==F)]  ## show those package if you have troubles to install.
+}
+
+list.of.bioc.packages <- c("phyloseq","pcaMethods")
+new.packages.bioc <- list.of.packages[!(list.of.bioc.packages %in% installed.packages()[,"Package"])]
+if(length(new.packages.bioc)) BiocManager::install(new.packages.bioc)
+res.bioc <- unlist(lapply(list.of.bioc.packages, require,character.only = T)) 
+if(any(res.bioc==F)){
+  list.of.packages[which(res.bioc==F)]  ## show those package if you have troubles to install.
+}
+```
+
+### Load the data.
+
+We are going to load the Clinical data and the microbiome, because the microbiome does not have the main factor variables. 
+
+```{r}
+
+general_data <- read.xlsx(file.path(params$folder.data,params$general.data),sheetIndex =1)
+general_data$SEX <- factor(general_data$SEX, levels = c(0, 2), labels = c("Female", "Male"))
+general_data$OBESE <- factor(general_data$OBESE, levels = c(0, 1), labels = c("No Obese", "Obese"))
+general_data$GROUP <- factor(general_data$GROUP, levels = c(0, 1, 2), labels = c("Female",  "PCOS", "Male"))
+
+bacteria_phylum.abs <- as.data.frame(read.xlsx(file.path(params$folder.data,params$file.data), sheetIndex = 1))
+bacteria_genera.abs <- as.data.frame(t(read.xlsx(file.path(params$folder.data,params$file.data), sheetIndex = 3)))
+```
+
+Observations that are in the metagonome dataset.
+
+```{r}
+variables_in_bacteria <- general_data[general_data$Orden %in% bacteria_phylum.abs$Order, ]
+```
+
+The next samples not are in the metagenome dataset
+
+```{r}
+general_data[!general_data$Orden %in% bacteria_phylum.abs$Order, ][,1:5]
+```
+
+
+### Some useful functions.
+
+```{r funciones}
+
+
+resumen<-function(x){c(round(mean(x),4),round(sd(x),4))} # Function that help us to summarize the data in mean and sd values
+lowerFn <- function(data, mapping, method = "lm", ...) {
+  p <- ggplot(data = data, mapping = mapping) +
+    geom_point(colour = "blue") +
+    geom_smooth(method = method, color = "red", ...)
+  p
+}
+
+
+## PlotPCA for different methods.
+plotPCA_methods <- function (X.list,factor, title1,title2, size = 1.5, glineas = 0.25,labels.scores,labels.loads) {
+
+    X.scores <- X.list$scores
+    X.loadings <- X.list$loadings
+    colnames(X.scores)<-paste0("PC",1:dim(X.scores)[2])
+    
+    colnames(X.loadings) <- paste0("PC",1:dim(X.loadings)[2])
+    varianza<-as.data.frame( X.list$var)
+    varianza$PC <- paste0("PC",1:length(X.list$var))
+    colnames(varianza)<-c("varianza","PC")
+  # scores
+  X.scores <- as.data.frame(X.scores)
+  Group <- factor[[1]]
+  Group2<-factor[[2]]
+  colores<-1:length(levels(Group))
+   # main plot
+   p1 <- ggplot(X.scores,aes(x=PC1, y=PC2)) +
+     theme_classic() +
+     geom_hline(yintercept = 0, color = "gray70") +
+     geom_vline(xintercept = 0, color = "gray70") +
+     geom_point(aes(color = Group,shape=Group2), alpha = 0.55, size = 3) +
+     coord_cartesian(xlim = c(min(X.scores[,1]),max(X.scores[,1]))) +
+     scale_fill_discrete(name = "Group")
+   # avoiding labels superposition
+   
+      grafico<- p1 + geom_text_repel(aes(y = PC2, label = labels.scores),segment.size = 0.25, size = size) + 
+     labs(x = c(paste("PC1",round(varianza[1,1],2),"%")),y=c(paste("PC2",round(varianza[2,1],2),"%"))) +  
+     ggtitle(paste("Principal Component Analysis for: ",title1,sep=" "))+ 
+     theme(plot.title = element_text(hjust = 0.5)) +
+     scale_color_manual(values=colores)
+
+   X.loadings <- as.data.frame(X.loadings)
+   # main plot
+   p2 <- ggplot(X.loadings,aes(x=PC1, y=PC2)) +
+     theme_classic() +
+     geom_hline(yintercept = 0, color = "gray70") +
+     geom_vline(xintercept = 0, color = "gray70") +
+     geom_point(aes(color = "gray70"), alpha = 0.55, size = 3) +
+     coord_cartesian(xlim = c(min(X.loadings[,1]),max(X.loadings[,1]))) 
+   # avoiding labels superposition
+   
+      grafico2<- p2 + geom_text_repel(aes(label = labels.loads),segment.size = 0.25, size = size) + 
+     labs(x = c(paste("PC1",round(varianza[1,1],2),"%")),y=c(paste("PC2",round(varianza[2,1],2),"%"))) +  
+     ggtitle(paste("Principal Component Analysis for: ",title2,sep=" "))+ 
+     theme(plot.title = element_text(hjust = 0.5))+ theme(legend.position = "none")
+    
+  graficos <- list(grafico,grafico2)
+return(graficos)
+}
+
+proces_bacteria <- function(datos,tipo){
+
+	Order <- bacteria_phylum.abs$Order
+	variables_in_bacteria <- general_data[general_data$Orden %in% Order , ]
+	Sample<-variables_in_bacteria$Paciente
+
+
+	if(tipo=="genera"){
+
+		Order <- Order
+
+		X <- datos[-1,-1]
+		X<-apply(X,2,as.numeric)
+		colnames(X) <- datos[1,2:ncol(datos)]
+		rownames(X) <- Sample
+		X<-X[,-grep("^ud",colnames(X))]
+		X<-X[,colSums(X)>0]
+		X.rel <- 100*X/rowSums(X)
+
+
+	} else if(tipo=="phylum"){
+
+		X <- datos[,-c(1:2)]
+		colnames(X) <- colnames(datos)[3:ncol(datos)]
+		rownames(X) <- Sample
+		X<-X[,colSums(X)>0]
+		X<-X[,-grep("^ud",colnames(X))]
+		
+		
+		X.rel<-100*X/rowSums(X)
+	}
+
+	GROUP <-variables_in_bacteria$GROUP
+	SEX <- variables_in_bacteria$SEX
+	OBESE<- variables_in_bacteria$OBESE
+
+	X<-as.data.frame(X)
+	X.rel<-as.data.frame(X.rel)
+
+	X$GROUP<-GROUP
+	X$SEX<-SEX
+	X$OBESE<-OBESE
+
+
+	X.rel$GROUP<-GROUP
+	X.rel$SEX<-SEX
+	X.rel$OBESE<-OBESE
+
+	return(list(abs=X,rel=X.rel))
+
+}
+
+
+## Creamos los objetos de phyloseq
+
+create_phyloseq<-function(datos,taxon){
+
+	GROUP <-variables_in_bacteria$GROUP
+	SEX <- variables_in_bacteria$SEX
+	OBESE<- variables_in_bacteria$OBESE
+	datos <- datos
+
+	X<-datos[,-c(ncol(datos)-2,ncol(datos)-1,ncol(datos))]
+
+	Xt<-t(X)
+
+	rownames(Xt) <- paste0("OTU",1:nrow(Xt))
+	OTU  <- otu_table(Xt,taxa_are_rows=T) # creamos Otu table.
+
+	tax <- as.matrix(colnames(X),ncol=1)
+	TAX <- tax_table(tax)
+	taxa_names(TAX) <- paste0("OTU",1:ncol(X))
+	colnames(TAX)<-taxon
+  
+
+	## Creamos sample table
+
+	samples <- as.data.frame(matrix(rep(0,dim(X)[1]*dim(X)[2]),nrow=nrow(X),ncol=3))
+	samples[,1]<- GROUP
+	samples[,2]<- OBESE
+	samples[,3] <- SEX  
+	colnames(samples) <- c("GROUP","OBESE","SEX")
+	rownames(samples) <- variables_in_bacteria$Paciente
+	SAM<-sample_data(samples)
+
+	phyloseq_obj <- phyloseq(OTU,TAX,SAM)
+
+	return(phyloseq_obj)
+
+}
+
+perf <- function(X,X.pred){
+  # print(dim(X))
+  # print(dim(X.pred))
+  return(abs(norm(X-X.pred,type="F"))/norm(X,type="F"))
+  
+}
+
+spca.perf <- function(X,fix_parameter,transpose,scale.){
+  
+  parameter <-  seq(1e-10,1,0.01)
+  perf.vector <- vector(mode="numeric",length=length(parameter))
+  if(fix_parameter=="alpha"){
+    
+    beta <- parameter
+    alpha <- 1e-4
+  if(transpose==F){
+    
+    for( i in 1:length(parameter)){
+       perf.vector[i]<-perf(as.matrix((X)),t(spca((X),alpha=alpha,beta=beta[i],center=T,scale=scale.,verbose = F,k=ncol(X))$loadings))
+  
+    }
+    beta <- beta[which.min(perf.vector)]
+    pcx<- spca(X,alpha=alpha,beta=beta,verbose=F,center=T,scale=scale.,k=ncol(X))
+    
+  }else if(transpose==T){
+    
+        for( i in 1:length(parameter)){
+       perf.vector[i]<-perf(as.matrix(t(X)),(spca(t(X),alpha=alpha,beta=beta[i],verbose = F,center=T,scale=scale.,k=ncol(X))$scores))
+  
+    }
+    beta <- beta[which.min(perf.vector)]
+    pcx<- spca(t(X),alpha=alpha,beta=beta,verbose=F,center=T,scale=scale.,k=ncol(X))
+  }
+    
+  }else if(fix_parameter=="beta"){
+  
+    alpha <- parameter
+    beta <- 1e-4
+      if(transpose==F){
+    
+    for( i in 1:length(parameter)){
+       perf.vector[i]<-perf(as.matrix((X)),t(spca((X),alpha=alpha[i],beta=beta,center=T,scale=scale.,verbose = F,k=ncol(X))$loadings))
+  
+    }
+    alpha<- alpha[which.min(perf.vector)]
+    pcx<- spca(X,alpha=alpha,beta=beta,verbose=F,center=T,scale=scale.,k=ncol(X))
+  }else if(transpose==T){
+    
+        for( i in 1:length(parameter)){
+       perf.vector[i]<-perf(as.matrix(t(X)),(spca(t(X),alpha=alpha[i],center=T,scale=scale.,beta=beta,verbose = F,k=ncol(X))$scores))
+  
+    }
+
+    alpha<- alpha[which.min(perf.vector)]
+    pcx<- spca(t(X),alpha=alpha,beta=beta,center=T,scale=scale.,verbose=F,k=ncol(X))    
+  }
+    
+  
+  }
+  
+  return(pcx)
+}
+
+plotCA_methods <- function (ca.obj,factor, title, size = 1.5, glineas = 0.25,labels.bac,labels.samples) {
+
+    X.cord_col_stand<- data.frame(ca.obj$colcoord)
+    X.cord_col_prin <- data.frame(ca.obj$colcoord %*% diag(ca.obj$sv))
+    X.cord_row_stand <- data.frame(ca.obj$rowcoord)
+    X.cord_row_prin <- data.frame(ca.obj$rowcoord %*% diag(ca.obj$sv))
+    
+    colnames(X.cord_col_stand)<-paste0("dim",1:dim(X.cord_col_stand)[2])
+    colnames(X.cord_col_prin)<-paste0("dim",1:dim(X.cord_col_prin)[2])
+    colnames(X.cord_row_stand)<-paste0("dim",1:dim(X.cord_row_stand)[2])
+    colnames(X.cord_row_prin)<-paste0("dim",1:dim(X.cord_row_prin)[2])
+    
+    data.plot.col <- as.data.frame(cbind(X.cord_col_stand[,1],X.cord_col_prin[,2]))
+    colnames(data.plot.col)<-c("dim1","dim2")
+    
+    data.plot.row <- as.data.frame(cbind(X.cord_row_stand[,1],X.cord_row_prin[,2]))
+    colnames(data.plot.row) <- c("dim1","dim2")
+    inercia <- data.frame(100*ca.obj$sv^2/sum(ca.obj$sv^2))
+    colnames(inercia)<-"Inercia"
+    inercia$DIM <-  paste("cim",1:length(ca.obj$sv))
+    Group <- factor[[1]]
+    Group2<-factor[[2]]
+    colores<-1:length(levels(Group))
+    
+    
+   # computamos plot asymétrico con las columnas (bacterias)
+   p1 <- ggplot(data.plot.col,aes(x=dim1, y=dim2)) +
+     theme_classic() +
+     geom_hline(yintercept = 0, color = "gray70") +
+     geom_vline(xintercept = 0, color = "gray70") +
+     coord_cartesian(xlim = c(min(data.plot.col[,1]),max(data.plot.col[,1]))) 
+
+
+   # avoiding labels superposition
+   
+     grafico_columnas<- p1 + geom_text_repel(aes(y = dim2, label = labels.bac),segment.size = 0.1, size = size) + 
+       geom_point(aes(y=dim2))+
+     labs(x = c(paste("dim1",round(inercia[1,1],2),"%")),y=c(paste("dim2",round(inercia[2,1],2),"%"))) +  
+     ggtitle(paste("Canonical Correlation Analysis: Columns asymetric plot for ",title,sep=" "))+ 
+     theme(plot.title = element_text(hjust = 0.5))
+
+     
+
+   # main plot
+   p2 <- ggplot(data.plot.row,aes(x=dim1, y=dim2)) +
+     theme_classic() +
+     geom_hline(yintercept = 0, color = "gray70") +
+     geom_vline(xintercept = 0, color = "gray70") +
+    geom_point(aes(color = Group,shape=Group2), alpha = 0.55, size = 3) +
+     scale_fill_discrete(name = "Group")+
+     coord_cartesian(xlim = c(min(data.plot.row[,1]),max(data.plot.row[,1]))) 
+   # avoiding labels superposition
+   
+    grafico_filas<- p2  + 
+     labs(x = c(paste("dim1",round(inercia[1,1],2),"%")),y=c(paste("dim2",round(inercia[2,1],2),"%"))) +  
+     ggtitle(paste("Canonical Correlation Analysis: Rows asymetric plot for: ",title,sep=" "))+ 
+     theme(plot.title = element_text(hjust = 0.5))+ theme(legend.position = "right")+scale_color_manual(values=colores)
+    
+  onjeto_cca <- list(plot_cols = grafico_columnas,plot_rows = grafico_filas,
+                     prin_rows = X.cord_row_prin,stand_rows = X.cord_row_stand,
+                     prin_cols = X.cord_col_prin,stand_cols = X.cord_col_stand)
+return(onjeto_cca)
+}
+
+
+
+
+plotMDS <- function(mds.obj,factor, title,labels,method ,size = 1.5, glineas = 0.25) {
+  
+    Group <- factor[[1]]
+    Group2<-factor[[2]]
+    colores<-1:length(levels(Group))
+  if(method=="meta"){
+    
+      X.points <- data.frame(mds.obj$points)
+      X.scores <- data.frame(mds.obj$species)
+      
+       # main plot
+       p1 <- ggplot(X.points,aes(x=MDS1, y=MDS2)) +
+         theme_classic() +
+         geom_hline(yintercept = 0, color = "gray70") +
+         geom_vline(xintercept = 0, color = "gray70") +
+         geom_point(aes(color = Group,shape=Group2), alpha = 0.55, size = 3) +
+         coord_cartesian(xlim = c(min(c(X.points[,1],X.scores[,1])),max(c(X.points[,1],X.scores[,1])))) +
+         scale_fill_discrete(name = "Group")
+       # avoiding labels superposition
+       
+         grafico<- p1 + geom_text_repel(aes(y = MDS2, label = labels),segment.size = 0.25, size = size)+labs(y=c(paste("stress",round(100*mds.obj$stress,2),"%"))) +  
+           ggtitle(paste("Non-metric MDS (meta) for ",title,sep=" "))+ 
+           theme(plot.title = element_text(hjust = 0.5)) +
+           scale_color_manual(values=colores)
+    
+         grafico2<- ggplot(data=X.scores,aes(MDS1,MDS2))+
+           geom_text_repel(data=X.scores,aes(y = MDS2, label = rownames(X.scores)),
+           segment.size = 0.25, size = 2) +labs(y=c(paste("Total stress",100*round(mds.obj$stress,2),"%"))) +  
+           ggtitle(paste("Non-metric MDS (meta) for ",title,sep=" "))+
+           coord_cartesian(xlim = c(min(X.points[,1]),max(X.points[,1]))) +
+           theme(plot.title = element_text(hjust = 0.5),legend="none") 
+         
+   
+  resultado <- list(grafico1=grafico,grafico2=grafico2,dim1_samples=X.points[,1],dim2_samples=X.points[,2],
+                    dim1_species=X.scores[,1],dim2_species=X.scores[,2])
+    
+
+    
+  }else if(method=="iso"){
+    X.points <- data.frame(mds.obj$points)
+    
+    colnames(X.points)<- paste0("MDS",1:ncol(X.points))
+     colores<-1:length(levels(Group))
+   # main plot
+     p1 <- ggplot(X.points,aes(x=MDS1, y=MDS2)) +
+       theme_classic() +
+       geom_hline(yintercept = 0, color = "gray70") +
+       geom_vline(xintercept = 0, color = "gray70") +
+       geom_point(aes(color = Group,shape=Group2), alpha = 0.55, size = 3) +
+       coord_cartesian(xlim = c(min(X.points[,1]),max(X.points[,1]))) +
+       scale_fill_discrete(name = "Group")
+   # avoiding labels superposition
+       
+       grafico<- p1 + geom_text_repel(aes(y = MDS2, label = labels),segment.size = 0.25, size = size)+
+         labs(y=c(paste("Total stress",round(mds.obj$stress,2),"%"))) +  
+         ggtitle(paste("Non-metric MDS (iso) for ",title,sep=" "))+ 
+         theme(plot.title = element_text(hjust = 0.5),legend="none") +
+         scale_color_manual(values=colores)
+   
+   
+     resultado <- list(grafico1=grafico,dim1_samples=X.points[,1],dim2_samples=X.points[,2])
+  }
+  
+
+return(resultado)
+}
+
+
+plotPcoA <- function(mds.obj,factor, title,labels ,size = 1.5, glineas = 0.25) {
+  
+    Group <- factor[[1]]
+    Group2<-factor[[2]]
+    colores<-1:length(levels(Group))
+    varianza <- 100*round(mds.obj$eig/sum(mds.obj$eig),2)
+    X.points <- data.frame(mds.obj$points)
+    
+    colnames(X.points)<- paste0("PC",1:ncol(X.points))
+    colores<-1:length(levels(Group))
+   # main plot
+     p1 <- ggplot(X.points,aes(x=PC1, y=PC2)) +
+       theme_classic() +
+       geom_hline(yintercept = 0, color = "gray70") +
+       geom_vline(xintercept = 0, color = "gray70") +
+       geom_point(aes(color = Group,shape=Group2), alpha = 0.55, size = 3) +
+       coord_cartesian(xlim = c(min(X.points[,1]),max(X.points[,1]))) +
+       scale_fill_discrete(name = "Group")
+   # avoiding labels superposition
+       
+       grafico<- p1 +
+         labs(x = c(paste("PC1",round(varianza[1],2),"%")),y=c(paste("PC2",round(varianza[2],2),"%"))) +  
+         ggtitle(paste("PCoA for ",title,sep=" "))+ 
+         theme(plot.title = element_text(hjust = 0.5),legend.position ="none") +
+         scale_color_manual(values=colores)
+   
+   
+     resultado <- list(grafico1=grafico,dim1_samples=X.points[,1],dim2_samples=X.points[,2])
+  
+  
+
+return(resultado)
+}
+```
+
+
+
+
+
+
+
+
+Before start the analysis, let's create `phyloseq` objects.
+
+```{r}
+phylum.list <- proces_bacteria(bacteria_phylum.abs,tipo="phylum")
+genera.list <- proces_bacteria(bacteria_genera.abs,tipo="genera")
+
+phylum.abs <- phylum.list$abs;phylum.rel<-phylum.list$rel
+genera.abs <- genera.list$abs;genera.rel<-genera.list$rel
+
+```
+
+
+
+```{r}
+
+phyloseq_phyla_abs <- create_phyloseq(phylum.abs,"phylum")
+# phyloseq_phyla_rel<- create_phyloseq(phylum.rel,"phylum")
+
+phyloseq_genera_abs <- create_phyloseq(genera.abs,"genus")
+# phyloseq_genera_rel<- create_phyloseq(genera.rel,"genus")
+```
+
+## Sanity check.
+
+```{r}
+(sexo<-table(phyloseq_genera_abs@sam_data$SEX))
+
+(sexo.obesos<-table(phyloseq_genera_abs@sam_data$OBESE))
+
+(subgrupos<-table(phyloseq_genera_abs@sam_data$GROUP,phyloseq_genera_abs@sam_data$OBESE))
+```
+```{r}
+chisq.test(sexo.obesos)
+chisq.test(subgrupos)
+```
+
+There are no differences between groups, thus we can continue our exploratory analysis without concern. After the sanity check analysis, previously we have observed from the `str` function, that tells us the general structure of the data.
+
+
+## Statistical descriptive analysis: Phylum.
+
+### Descriptive numerical table.
+We are going to perform the descriptive analysis on the relative abundance firstly by a numerical descriptive table.
+
+```{r}
+phylum.variables <- phylum.rel ## remove samples names and order from the summary
+
+
+phylum.sum<-phylum.variables %>%group_by(GROUP,OBESE) %>% 
+  summarise(across(where(is.numeric),resumen),n=n()) %>%mutate_if(is.numeric, format, 4) # Group the data by variable GROUP and OBESE
+
+d.f<-as.data.frame(t(phylum.sum))[c(nrow(t(phylum.sum)),1:(nrow(t(phylum.sum))-1)),] # transpose the data for visualization purposes and get rid off the N value for same purposes
+
+# name of each variable.
+nombre_phylum_variable<-colnames(phylum.variables)[-c(ncol(phylum.variables)-2,ncol(phylum.variables)-1,ncol(phylum.variables))]
+
+colnames(d.f) <- rep(c("Mean","SD"),6)
+d.f_final <- d.f[-c(1:3),]
+## ATTENION! Because assining left hand expression is 
+## complicated, just for one table, be careful if we put another data-set
+## For showing the number of subjects by group
+as.data.frame(d.f_final)
+kbl(d.f_final,digits=c(rep(4,12),0)) %>%
+  kable_classic_2() %>%
+    add_header_above(c(" "=1,
+                      "8"= 2,
+                      "8"= 2,
+                      "7"= 2,
+                      "8"= 2,
+                      "8"= 2,
+                      "7"= 2
+ )) %>%
+      add_header_above(c( " "=1,
+                     "No Obese" = 2,
+                     "Obese" =2,
+                     "No Obese" = 2,
+                     "Obese" =2,
+                     "No Obese" = 2,
+                     "Obese" =2)) %>%
+  add_header_above(c(" "=1,
+                      "Control Females" = 4, 
+                     "PCOS"=4,
+                     "Control Males"=4)) 
+
+
+```
+
+
+
+### Diversity.
+
+Now we are going to compute the beta and alpha diversity.
+
+#### Alpha diversity.
+```{r}
+phylum.abs.curated <- prune_species(speciesSums(phyloseq_phyla_abs) > 0, phyloseq_phyla_abs)
+alpha<-estimate_richness(phylum.abs.curated,measures = c("Shannon","Chao1"))
+alpha$GROUP <- variables_in_bacteria$GROUP
+alpha$OBESE <- variables_in_bacteria$OBESE
+p1<-ggplot(alpha,aes(x=GROUP,y=Chao1,interaction(alpha$GROUP),fill=alpha$OBESE ))+geom_boxplot()+ylab("")+xlab("")+ ggtitle("Chao1")+ theme(legend.title=element_blank())
+p2<-ggplot(alpha,aes(x=GROUP,y=Shannon,interaction(alpha$GROUP),fill=alpha$OBESE ))+geom_boxplot()+ylab("")+xlab("")+ggtitle("Shannon")+ theme(legend.title=element_blank())
+grid.arrange(p1,p2,ncol=2)
+```
+
+
+#### Beta diversity.
+
+Because beta diversity explains the  ratio between regional and local species diversit
+
+##### Jaccard Index.
+
+```{r}
+X.phylum <- phylum.abs[,-c(ncol(phylum.abs)-2,ncol(phylum.abs)-1,ncol(phylum.abs))]
+dim(X.phylum)
+```
+
+```{r}
+X.phylum<-X.phylum[,colSums(X.phylum)>0]
+dim(X.phylum)
+```
+
+```{r}
+jaccard_phylum_D <- vegdist(X.phylum,method="jaccard")
+is.euclid(jaccard_phylum_D) 
+```
+Cómo la distancia no es euclídea procedemos con un escalado multidimensional no métrico.
+
+```{r}
+nmds_ids_phylum <- isoMDS(jaccard_phylum_D,trace=F)
+nmds_ids_phylum$stress
+
+nmds_meta_phylum <- vegan::metaMDS(X.phylum,distance="jaccard",engine="monoMDS",trace=F)
+nmds_meta_phylum$stress*100
+```
+
+Utilizamos el engine `isoMDS` procedemos a graficar.
+
+
+
+We can observe a clearly separation between control females and males and PCOS females. Also a distinction between obese subjects is observed
+
+##### Soersen Index
+
+```{r}
+soersen_phylum_D <- vegdist(t(X.phylum),method="bray",binary = T)
+is.euclid(soersen_phylum_D) 
+```
+
+The distance is not euclidean, thus we proceed with non-metric MDS
+
+```{r}
+# nmds_ids_phylum <- isoMDS(soersen_phylum_D,trace=F)
+# nmds_ids_phylum$stress # no se puede calcular
+
+nmds_meta_phylum_soersen <- vegan::metaMDS(X.phylum,engine="monoMDS",trace=F,binary=T,autotransform = T)
+nmds_meta_phylum_soersen$stress*100
+# 
+
+
+
+
+```
+
+
+```{r}
+Group <- variables_in_bacteria$GROUP
+    Group2<-variables_in_bacteria$OBESE
+    colores<-1:length(levels(Group))
+
+    
+      X.scores <- data.frame(nmds_ids_phylum$points)
+      colnames(X.scores)<-paste0("MDS",1:dim(X.scores)[2])
+      # X.scores <- data.frame(nmds_ids_phylum$species)
+      
+       # main plot
+       p1 <- ggplot(X.scores,aes(x=MDS1, y=MDS2)) +
+         theme_classic() +
+         geom_hline(yintercept = 0, color = "gray70") +
+         geom_vline(xintercept = 0, color = "gray70") +
+         geom_point(aes(color = Group,shape=Group2), alpha = 0.55, size = 3) +
+         coord_cartesian(xlim = c(min(c(X.scores[,1],X.scores[,1])),max(c(X.scores[,1],X.scores[,1])))) +
+         scale_fill_discrete(name = "Group")+
+         labs(y=c(paste("stress",round(nmds_ids_phylum$stress,2),"%"))) +
+         ggtitle(paste("Non-metric MDS (engine iso) ","Jaccard Index (Phylum)",sep=" "))+
+         theme(plot.title = element_text(hjust = 0.5),legend.position="none") +
+          scale_color_manual(values=colores)
+       # avoiding labels superposition
+  
+       
+             X.scores <- data.frame(nmds_meta_phylum_soersen$points)
+      colnames(X.scores)<-paste0("MDS",1:dim(X.scores)[2])
+      # X.scores <- data.frame(nmds_ids_phylum$species)
+      
+       # main plot
+       p2 <- ggplot(X.scores,aes(x=MDS1, y=MDS2)) +
+         theme_classic() +
+         geom_hline(yintercept = 0, color = "gray70") +
+         geom_vline(xintercept = 0, color = "gray70") +
+         geom_point(aes(color = Group,shape=Group2), alpha = 0.55, size = 3) +
+         # coord_cartesian(xlim = c(min(c(X.scores[,1],X.scores[,1])),max(c(X.scores[,1],X.scores[,1])))) +
+         scale_fill_discrete(name = "Group")+
+         labs(y=c(paste("stress",100*round(nmds_meta_phylum_soersen$stress,2),"%"))) +
+         ggtitle(paste("Non-metric MDS (engine mono) ","Soeresen Index (Phylum)",sep=" "))+
+         theme(plot.title = element_text(hjust = 0.5),legend.position="none") +
+          scale_color_manual(values=colores)
+       # avoiding labels superposition
+
+ggarrange(p1,p2,common.legend = T,legend="bottom",nrow = 2)
+```
+
+
+
+### Statisitcal Multivariate Descriptive analysis.
+
+Due to the fact that we are dealing with with presence or absence of data, the best choice is to perform a Canonical Correspondence Analysis.
+
+
+```{r}
+ca.phylum <- ca(X.phylum)
+```
+
+
+
+```{r}
+plot_phylum<-plotCA_methods(ca.phylum,grupos,"phylum",labels.bac = colnames(X.phylum),size=3)
+
+grid.arrange(plot_phylum$plot_cols,
+plot_phylum$plot_rows,nrow=2)
+```
+
+
+```{r}
+ p1 <- fviz_contrib(ca.phylum, choice = "row", axes = 1, top = 10)
+ # Contributions of rows to dimension 2
+ p2 <- fviz_contrib(ca.phylum, choice = "row", axes = 2, top = 10)
+ 
+ # Contributions of cols to dimension 1
+p3 <- fviz_contrib(ca.phylum, choice = "col", axes = 1, top = 10)
+ # Contributions of cols to dimension 2
+ p4 <- fviz_contrib(ca.phylum, choice = "col", axes = 2, top = 10)
+ grid.arrange(p1, p2, p3, p4, ncol = 2)
+```
+
+```{r}
+library(mixOmics)
+datos<- X.phylum
+
+datos.offset <- datos+1
+
+low.count.removal = function(
+                        data, # OTU count data frame of size n (sample) x p (OTU)
+                        percent=0.01 # cutoff chosen
+                        ){
+    keep.otu = which(colSums(data)*100/(sum(colSums(data))) > percent)
+    data.filter = data[,keep.otu]
+    return(list(data.filter = data.filter, keep.otu = keep.otu))
+}
+
+result.filter <- low.count.removal(datos.offset, percent=0.01)
+data.filter <- result.filter$data.filter
+# check the number of variables kept after filtering
+# in this particular case we had already filtered the data so no was change made, but from now on we will work with 'data.filter'
+length(result.filter$keep.otu) 
+
+data.clr <- logratio.transfo(as.matrix(data.filter), logratio = 'CLR', offset = 0) 
+X<-data.clr
+Y<- interaction(variables_in_bacteria$GROUP,variables_in_bacteria$OBESE)
+plsda.res <- plsda(X, Y, ncomp = 5) # where ncomp is the number of components wanted
+
+set.seed(2543) # for reproducibility here, only when the `cpus' argument is not used
+perf.plsda <- mixOmics::perf(plsda.res, validation = "Mfold", folds = 5, 
+                  progressBar = FALSE, auc = TRUE, nrepeat = 10) 
+# perf.plsda.srbct$error.rate  # error rates
+plot(perf.plsda, col = color.mixo(1:3), sd = TRUE, legend.position = "horizontal")
+
+
+plsda.res <- plsda(X, Y, ncomp = 3) # where ncomp is the number of components wanted
+
+```
+
+```{r}
+Group <- variables_in_bacteria$GROUP
+Group2 <- variables_in_bacteria$OBESE
+X<-plsda.res$variates$X
+
+Y<-plsda.res$variates$Y
+datos <- data.frame(X)
+str(datos)
+p1 <- ggplot(datos,aes(comp1,comp2))+theme_article() +
+     geom_hline(yintercept = 0, color = "gray70") +
+     geom_vline(xintercept = 0, color = "gray70") +
+     geom_point(aes(color = Group,shape=Group2), alpha = 0.55, size = 3) +
+     coord_cartesian(xlim = c(min(datos[,1]),max(datos[,1]))) +
+     scale_color_manual(values=1:3)+theme(legend.position = "none")+
+     coord_cartesian(xlim = c(min(datos[,1]),max(datos[,1]))) 
+     labs(x = c(paste("PC1",round(100*plsda.res$prop_expl_var$X[1],2),"%")),
+          y=c(paste("PC2",round(100*plsda.res$prop_expl_var$X[2],2),"%"))) +  
+     theme(plot.title = element_text(hjust = 0.5),legend.position = "none")
+
+      
+plotLoadings(plsda.res,title="Microbiome Phylum PlS-DA loadings",size.title = rel(1),method="median")
+L <-data.frame(plsda.res$loadings$X)
+p2 <- ggplot(L,aes(comp1,comp2,label=colnames(data.clr)))+theme_article() +
+     geom_hline(yintercept = 0, color = "gray70") +
+     geom_vline(xintercept = 0, color = "gray70") +
+     geom_point(aes(color = "red"), alpha = 0.55, size = 3) +
+     coord_cartesian(xlim = c(min(L[,1]),max(L[,1]))) +geom_text_repel(aes(comp1,comp2),label=colnames(data.clr),size=3)+
+     labs(x = c(paste("PC1",round(100*plsda.res$prop_expl_var$X[1],2),"%")),
+          y=c(paste("PC2",round(100*plsda.res$prop_expl_var$X[2],2),"%"))) +  
+     theme(plot.title = element_text(hjust = 0.5),legend.position = "none")
+p3<-ggarrange(p1,p2,nrow=2,common.legend = T,legend="bottom")
+
+annotate_figure(p3, top = text_grob("PLS-DA Phylum", 
+               color = "black", face = "bold", size = 14))
+
+
+```
+
+
+```{r}
+p1<-plot_bar(phyloseq_phyla_abs , x="phylum", fill="GROUP",facet_grid = ~OBESE)
+p2<-plot_bar(phyloseq_phyla_abs , x="OBESE", facet_grid = ~GROUP)
+grid.arrange(p1,p2)
+```
+
+
+
+### Statistical Univariate Analysis
+```{r}
+phylum.rel<-as.data.frame.matrix(data.clr)
+phylum.rel$GROUP<-variables_in_bacteria$GROUP
+phylum.rel$OBESE <- variables_in_bacteria$OBESE
+variables <- colnames(data.clr)
+hist.list.meta<-list() ## initizalize a list of the histogram
+## plot all histograms via loop
+
+bp.interaction <- list() ## intialize boxplot list interaction
+for(i in 1:length(variables)){
+  if(class(variables[i])=="factor"){
+    next
+  }
+  titulo <- colnames(phylum.rel)[i]
+  variable <- variables[i]
+  bp.interaction[[i]]<-ggplot(phylum.rel,aes_string(x=phylum.rel$GROUP,y=variable,interaction(phylum.rel$GROUP),fill=phylum.rel$OBESE))+geom_boxplot()+ylab(titulo)+xlab("")+  theme(legend.title=element_blank())
+
+}
+```
+
+
+```{r}
+
+###plots
+grid.arrange(bp.interaction[[1]],bp.interaction[[4]],bp.interaction[[5]],
+             bp.interaction[[6]],bp.interaction[[2]],bp.interaction[[3]])
+
+```
+
+```{r}
+grid.arrange(bp.interaction[[4]],bp.interaction[[5]],bp.interaction[[6]])
+```
+
+```{r}
+grid.arrange(bp.interaction[[7]],bp.interaction[[8]],bp.interaction[[9]])
+```
+
+```{r}
+grid.arrange(bp.interaction[[10]],bp.interaction[[11]],bp.interaction[[12]])
+```
+
+```{r}
+grid.arrange(bp.interaction[[13]],bp.interaction[[14]],bp.interaction[[15]])
+```
+
+```{r}
+grid.arrange(bp.interaction[[16]],bp.interaction[[15]])
+```
+
+
+## Statistical descriptive analysis: Genus.
+
+We are going to perform the descriptive analysis on the relative abundance.
+
+```{r}
+genus.variables <- genera.rel ## remove samples names and order from the summary
+
+
+phylum.sum<-genus.variables %>%group_by(GROUP,OBESE) %>% 
+  summarise(across(where(is.numeric),resumen),n=n()) %>%mutate_if(is.numeric, format, 4) # Group the data by variable GROUP and OBESE
+
+d.f<-as.data.frame(t(phylum.sum))[c(nrow(t(phylum.sum)),1:(nrow(t(phylum.sum))-1)),] # transpose the data for visualization purposes and get rid off the N value for same purposes
+
+# name of each variable.
+nombre_phylum_variable<-colnames(genus.variables)[-c(ncol(genus.variables)-2,ncol(genus.variables)-1,ncol(genus.variables))]
+
+colnames(d.f) <- rep(c("Mean","SD"),6)
+d.f_final <- d.f[-c(1:3),]
+## ATTENION! Because assining left hand expression is 
+## complicated, just for one table, be careful if we put another data-set
+## For showing the number of subjects by group
+as.data.frame(d.f_final)
+kbl(d.f_final,digits=c(rep(4,12),0)) %>%
+  kable_classic_2() %>%
+    add_header_above(c(" "=1,
+                      "8"= 2,
+                      "8"= 2,
+                      "7"= 2,
+                      "8"= 2,
+                      "8"= 2,
+                      "7"= 2
+ )) %>%
+      add_header_above(c( " "=1,
+                     "No Obese" = 2,
+                     "Obese" =2,
+                     "No Obese" = 2,
+                     "Obese" =2,
+                     "No Obese" = 2,
+                     "Obese" =2)) %>%
+  add_header_above(c(" "=1,
+                      "Control Females" = 4, 
+                     "PCOS"=4,
+                     "Control Males"=4)) 
+
+
+```
+
+
+### Diversity.
+
+Now we are going to compute the beta and alpha diversity.
+
+#### Alpha diversity.
+
+```{r}
+genus.abs.curated <- prune_species(speciesSums(phyloseq_genera_abs) > 0, phyloseq_genera_abs)
+alpha<-estimate_richness(genus.abs.curated,measures = c("Shannon","Chao1"))
+alpha$GROUP <- variables_in_bacteria$GROUP
+alpha$OBESE <- variables_in_bacteria$OBESE
+p1<-ggplot(alpha,aes(x=GROUP,y=Chao1,interaction(alpha$GROUP),fill=alpha$OBESE ))+geom_boxplot()+ylab("")+xlab("")+ ggtitle("Chao1")+ theme(legend.title=element_blank())
+p2<-ggplot(alpha,aes(x=GROUP,y=Shannon,interaction(alpha$GROUP),fill=alpha$OBESE ))+geom_boxplot()+ylab("")+xlab("")+ggtitle("Shannon")+ theme(legend.title=element_blank())
+grid.arrange(p1,p2,ncol=2)
+```
+
+#### Beta diversity.
+
+Because beta diversity explains the  ratio between regional and local species diversity
+
+```{r}
+
+X.genus <- genera.abs[,-c(ncol(genera.abs)-2,ncol(genera.abs)-1,ncol(genera.abs))]
+dim(X.genus)
+
+```
+
+
+##### Jaccard Index.
+
+```{r}
+# dim(genera.abs)
+# X.genus <- genera.abs[,-c(ncol(genera.abs)-2,ncol(genera.abs)-1,ncol(genera.abs))]
+# dim(X.genus)
+```
+
+```{r}
+X.genus<-X.genus[,colSums(X.genus)>0]
+dim(X.genus)
+```
+
+```{r}
+jaccard_genus_D <- vegdist(X.genus,method="jaccard")
+is.euclid(jaccard_genus_D) 
+```
+Cómo la distancia  es euclídea procedemos con un escalado multidimensional no métrico.
+
+```{r}
+mds.genus <- cmdscale(jaccard_genus_D,eig=T)
+mds.genus.plot<-plotPcoA(mds.genus,grupos,"Genus Jaccard similarity")
+mds.genus.plot$grafico1
+```
+
+
+##### Soersen Index
+
+```{r}
+soersen_genus_D <- vegdist((X.genus),method="bray",binary = T)
+is.euclid(soersen_genus_D) 
+```
+
+The distance is not euclidean, thus we proceed with non-metric MDS
+
+```{r}
+nmds_ids_genus <- isoMDS(soersen_genus_D,trace=F)
+nmds_ids_genus$stress # no se puede calcular
+
+nmds_meta_genus_soersen <- vegan::metaMDS(X.genus,engine="monoMDS",trace=F,binary=T,autotransform = T)
+nmds_meta_genus_soersen$stress*100
+
+```
+
+```{r}
+
+Group <- variables_in_bacteria$GROUP
+    Group2<-variables_in_bacteria$OBESE
+    colores<-1:length(levels(Group))
+
+    
+      X.scores <- data.frame(nmds_meta_genus_soersen$points)
+      colnames(X.scores)<-paste0("MDS",1:dim(X.scores)[2])
+      # X.scores <- data.frame(nmds_ids_phylum$species)
+      
+       # main plot
+       p1 <- ggplot(X.scores,aes(x=MDS1, y=MDS2)) +
+         theme_classic() +
+         geom_hline(yintercept = 0, color = "gray70") +
+         geom_vline(xintercept = 0, color = "gray70") +
+         geom_point(aes(color = Group,shape=Group2), alpha = 0.55, size = 3) +
+         coord_cartesian(xlim = c(min(c(X.scores[,1],X.scores[,1])),max(c(X.scores[,1],X.scores[,1])))) +
+         scale_fill_discrete(name = "Group")+
+         labs(y=c(paste("stress",100*round(nmds_meta_genus_soersen$stress,2),"%"))) +
+         ggtitle(paste("Non-metric MDS (engine iso) ","Jaccard Index (Phylum)",sep=" "))+
+         theme(plot.title = element_text(hjust = 0.5),legend.position="none") +
+          scale_color_manual(values=colores)
+       # avoiding labels superposition
+
+ggarrange(p1,mds.genus.plot$grafico1,common.legend = T,legend="bottom",nrow = 2)
+```
+
+
+
+### Statisitcal Multivariate Descriptive analysis.
+
+Due to the fact that we are dealing with with presence or absence of data, the best choice is to perform a Canonical Correspondence Analysis.
+
+
+```{r}
+ca.genus <- ca(X.genus)
+```
+
+
+
+```{r}
+plot_genus<-plotCA_methods(ca.genus,grupos,"genus",labels.bac = colnames(X.genus),labels.samples = rownames(X.genus),size=2)
+grid.arrange(plot_genus$plot_cols,
+plot_genus$plot_rows)
+```
+
+
+
+```{r}
+ p1 <- fviz_contrib(ca.genus, choice = "row", axes = 1, top = 10)
+ # Contributions of rows to dimension 2
+ p2 <- fviz_contrib(ca.genus, choice = "row", axes = 2, top = 10)
+ 
+ # Contributions of cols to dimension 1
+p3 <- fviz_contrib(ca.genus, choice = "col", axes = 1, top = 10)
+ # Contributions of cols to dimension 2
+ p4 <- fviz_contrib(ca.genus, choice = "col", axes = 2, top = 10)
+ grid.arrange(p1, p2, p3, p4, ncol = 2)
+```
+
+```{r}
+library(mixOmics)
+datos<- X.genus
+
+datos.offset <- datos+1
+
+low.count.removal = function(
+                        data, # OTU count data frame of size n (sample) x p (OTU)
+                        percent=0.01 # cutoff chosen
+                        ){
+    keep.otu = which(colSums(data)*100/(sum(colSums(data))) > percent)
+    data.filter = data[,keep.otu]
+    return(list(data.filter = data.filter, keep.otu = keep.otu))
+}
+
+result.filter <- low.count.removal(datos.offset, percent=0.01)
+data.filter <- result.filter$data.filter
+# check the number of variables kept after filtering
+# in this particular case we had already filtered the data so no was change made, but from now on we will work with 'data.filter'
+length(result.filter$keep.otu) 
+
+data.clr <- logratio.transfo(as.matrix(data.filter), logratio = 'CLR', offset = 0) 
+X<-data.clr
+Y<- interaction(variables_in_bacteria$GROUP,variables_in_bacteria$OBESE)
+plsda.res <- plsda(X, Y, ncomp = 5) # where ncomp is the number of components wanted
+
+set.seed(2543) # for reproducibility here, only when the `cpus' argument is not used
+perf.plsda <- mixOmics::perf(plsda.res, validation = "Mfold", folds = 5, 
+                  progressBar = FALSE, auc = TRUE, nrepeat = 10) 
+# perf.plsda.srbct$error.rate  # error rates
+plot(perf.plsda, col = color.mixo(1:3), sd = TRUE, legend.position = "horizontal")
+
+
+plsda.res <- plsda(X, Y, ncomp = 2) # where ncomp is the number of components wanted
+
+```
+
+```{r}
+Group <- variables_in_bacteria$GROUP
+Group2 <- variables_in_bacteria$OBESE
+X<-plsda.res$variates$X
+
+Y<-plsda.res$variates$Y
+datos <- data.frame(X)
+str(datos)
+p1 <- ggplot(datos,aes(comp1,comp2))+theme_article() +
+     geom_hline(yintercept = 0, color = "gray70") +
+     geom_vline(xintercept = 0, color = "gray70") +
+     geom_point(aes(color = Group,shape=Group2), alpha = 0.55, size = 3) +
+     coord_cartesian(xlim = c(min(datos[,1]),max(datos[,1]))) +
+     scale_fill_discrete(name = "Group")+ scale_color_manual(values=1:3)
+
+
+      grafico1<- p1 + 
+     labs(x = c(paste("PC1 Met",round(100*plsda.res$prop_expl_var$metabolome[1],2),"%")),
+          y=c(paste("PC2 Met",round(100*plsda.res$prop_expl_var$metabolome[2],2),"%"))) +  
+     ggtitle(paste("Microbiome PLS-DA Genus",sep=" "))+ 
+     theme(plot.title = element_text(hjust = 0.5),legend.position = "max") +
+     scale_color_manual(values=1:3)+ labs(x = c(paste("PC1",round(100*plsda.res$prop_expl_var$X[1],2),"%")),
+          y=c(paste("PC2",round(100*plsda.res$prop_expl_var$X[2],2),"%"))) 
+     theme(plot.title = element_text(hjust = 0.5),legend.position = "none")
+      p1
+      
+plotLoadings(plsda.res,title="Microbiome Genus PlS-DA loadings",size.title = rel(1),method="median")
+L <-data.frame(plsda.res$loadings$X)
+p2 <- ggplot(L,aes(comp1,comp2,label=colnames(data.clr)))+theme_article() +
+     geom_hline(yintercept = 0, color = "gray70") +
+     geom_vline(xintercept = 0, color = "gray70") +
+     geom_point(aes(color = "red"), alpha = 0.55, size = 3) +
+     coord_cartesian(xlim = c(min(L[,1]),max(L[,1]))) +geom_text_repel(aes(comp1,comp2),label=colnames(data.clr),size=3)+
+     labs(x = c(paste("PC1",round(100*plsda.res$prop_expl_var$X[1],2),"%")),
+          y=c(paste("PC2",round(100*plsda.res$prop_expl_var$X[2],2),"%"))) +  
+     theme(plot.title = element_text(hjust = 0.5),legend.position = "none")
+ggarrange(grafico1,p2,nrow=2,common.legend = T)
+```
+
+
+
+
+```{r}
+# p1<-plot_bar(phyloseq_genera_abs, x="genus", fill="GROUP",facet_grid = ~OBESE)
+plot_bar(phyloseq_genera_abs , x="OBESE", facet_grid = ~GROUP)
+
+```
+```{r}
+bacteria_genera <- as.data.frame.matrix(data.clr)
+colnames(bacteria_genera)<-gsub(" ","_",colnames(bacteria_genera))
+variables <- colnames(bacteria_genera)
+bacteria_genera$GROUP<- variables_in_bacteria$GROUP
+bacteria_genera$OBESE<- variables_in_bacteria$OBESE
+
+bp.interaction <- list() ## intialize boxplot list interaction
+for(i in 1:length(variables)){
+  if(class(variables[i])=="factor"){
+    next
+  }
+  titulo <- colnames(bacteria_genera)[i]
+  variable <- variables[i]
+  bp.interaction[[variables[i]]]<-ggplot(bacteria_genera,aes_string(x=bacteria_genera$GROUP,y=variable,interaction(bacteria_genera$GROUP),fill=bacteria_genera$OBESE))+geom_boxplot()+ylab(titulo)+xlab("")+  theme(legend.title=element_blank())
+
+}
+```
+
+```{r}
+ggarrange(bp.interaction[["Fusicatenibacter"]],bp.interaction[["Dorea"]],bp.interaction[["Oscillibacter"]],bp.interaction[["Desulfovibrio"]])
+```
+
+
+```{r}
+names(bp.interaction)
+```
+
+

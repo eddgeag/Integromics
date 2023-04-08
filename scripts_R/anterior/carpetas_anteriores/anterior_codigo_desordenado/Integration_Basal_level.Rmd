@@ -1,0 +1,869 @@
+---
+title: Integration of omics and clinical data of the hormonal, metabolic, inflammatory,
+  and oxidative response in the different macronutrients of the diet
+author: "Edmond Geraud"
+subtitle: '`r params$subtitulo`'
+date: '`r format(Sys.Date(),"%e de %B, %Y")`' 
+output:
+  prettydoc::html_pretty:
+    theme: cayman
+    highlight: github
+    toc: true
+  html_document:
+    toc: true
+    toc_depth: 2
+header-includes:
+  - \usepackage[english]{babel}
+params:
+  file_IP: Integromics_IPmarkers.xlsx
+  file_metabolome: Integromics_Metabolome.xlsx
+  file_general: Integromics_1.xlsx
+  file_microbiota : integromics_microbiota.xlsx
+  folder.data: ../../datos
+  
+  subtitulo: Integration of all data sets at basal level.
+geometry: margin=2cm
+---
+
+```{r setup, include=FALSE}
+require(knitr)
+# include this code chunk as-is to set options
+opts_chunk$set(comment = NA, prompt = TRUE, tidy = T, 
+               fig.width = 7, fig.height = 7,echo = TRUE, 
+               message = FALSE, warning = FALSE, cache=TRUE, fig_caption = TRUE)
+Sys.setlocale("LC_TIME", "C")
+```
+
+## Load the libraries
+
+```{r libraries}
+
+list.of.packages <- c("xlsx","kableExtra","dplyr","ggplot2","egg","cowplot","patchwork","gridExtra","UsingR","car","lattice","ggpubr","ggbreak","GGally","reshape2","ggcorrplot","corrplot","rela","ggrepel","factoextra","chemometrics","sparsepca","vegan","ca","ade4","pls","OmicsPLS")
+new.packages <- list.of.packages[!(list.of.packages %in% installed.packages()[,"Package"])] ## check for packages not installed 
+if(length(new.packages)) install.packages(new.packages) ## install packages if necessary
+res<-unlist(lapply(list.of.packages, require,character.only = T)) ## load packages needed for the session
+if(any(res==F)){
+  list.of.packages[which(res==F)]  ## show those package if you have troubles to install.
+}
+
+list.of.bioc.packages <- c("phyloseq","pcaMethods","ropls","mixOmics")
+new.packages.bioc <- list.of.packages[!(list.of.bioc.packages %in% installed.packages()[,"Package"])]
+if(length(new.packages.bioc)) BiocManager::install(new.packages.bioc)
+res.bioc <- unlist(lapply(list.of.bioc.packages, require,character.only = T)) 
+if(any(res.bioc==F)){
+  list.of.packages[which(res.bioc==F)]  ## show those package if you have troubles to install.
+}
+```
+
+
+# Functions for loading data (microbiome)
+
+```{r}
+proces_bacteria <- function(datos,tipo){
+
+	Order <- bacteria_phylum.abs$Order
+	variables_in_bacteria <- general_data[general_data$Orden %in% Order , ]
+	Sample<-variables_in_bacteria$Paciente
+
+
+	if(tipo=="genera"){
+
+		Order <- Order
+
+		X <- datos[-1,-1]
+		X<-apply(X,2,as.numeric)
+		colnames(X) <- datos[1,2:ncol(datos)]
+		rownames(X) <- Sample
+		X.rel <- 100*X/rowSums(X)
+
+
+	} else if(tipo=="phylum"){
+
+		X <- datos[,-c(1:2)]
+		colnames(X) <- colnames(datos)[3:ncol(datos)]
+		rownames(X) <- Sample
+		X.rel<-100*X/rowSums(X)
+	}
+
+	GROUP <-variables_in_bacteria$GROUP
+	SEX <- variables_in_bacteria$SEX
+	OBESE<- variables_in_bacteria$OBESE
+
+	X<-as.data.frame(X)
+	X.rel<-as.data.frame(X.rel)
+
+	X$GROUP<-GROUP
+	X$SEX<-SEX
+	X$OBESE<-OBESE
+
+
+	X.rel$GROUP<-GROUP
+	X.rel$SEX<-SEX
+	X.rel$OBESE<-OBESE
+
+	return(list(abs=X,rel=X.rel))
+
+}
+
+```
+
+
+# Load the data
+
+## Clinical data.
+
+```{r}
+general_data <- read.xlsx(file.path(params$folder.data,params$file_general),sheetIndex =1)
+general_data$SEX <- factor(general_data$SEX, levels = c(0, 2), labels = c("Female", "Male"))
+general_data$OBESE <- factor(general_data$OBESE, levels = c(0, 1), labels = c("No Obese", "Obese"))
+general_data$GROUP <- factor(general_data$GROUP, levels = c(0, 1, 2), labels = c("Female",  "PCOS", "Male"))
+```
+
+## IP data.
+
+```{r}
+IP_file<-file.path(params$folder.data,file=params$file_IP) ## file path of the data
+IP.tmp<-read.xlsx(IP_file,sheetIndex = 1)
+IP<-IP.tmp[,-7] # remove the missin values column
+IP$SEX <- factor(IP$SEX,levels=c(0,2),labels = c("Female","Male"))
+IP$OBESE <- factor(IP$OBESE,levels=c(0,1),labels = c("No Obese","Obese"))
+IP$GROUP <- factor(IP$GROUP,levels=c(0,1,2),labels = c("Female","PCOS","Male"))
+```
+
+
+## Metabolome data
+
+```{r}
+metabolome_file<-file.path(params$folder.data,file=params$file_metabolome) ## file path of the data
+metabolome.tmp<-read.xlsx(metabolome_file,sheetIndex = 1) # read the data
+metabolites_name <- read.xlsx(metabolome_file,sheetIndex = 2)$Metabolitos # read the names of the metabolites
+any(is.na(metabolome.tmp)) # there is a row of missing values.
+metabolome<-metabolome.tmp[-nrow(metabolome.tmp),] ## remove the missing value row
+metabolome$GROUP<-general_data$GROUP ## add GROUP variable 
+metabolome$OBESE <- general_data$OBESE ## add OBESE variables.
+```
+
+## Microbiome data.
+
+```{r}
+bacteria_phylum.abs <- as.data.frame(read.xlsx(file.path(params$folder.data,params$file_microbiota), sheetIndex = 1))
+bacteria_genera.abs <- as.data.frame(t(read.xlsx(file.path(params$folder.data,params$file_microbiota), sheetIndex = 3)))
+phylum.list <- proces_bacteria(bacteria_phylum.abs,tipo="phylum")
+genera.list <- proces_bacteria(bacteria_genera.abs,tipo="genera")
+
+phylum.abs <- phylum.list$abs;phylum.rel<-phylum.list$rel
+genera.abs <- genera.list$abs;genera.rel<-genera.list$rel
+```
+
+
+# Preprocess data according to the microbiome.
+
+Because we have less subjects on the microbiome, and we have phylum and genera with variables with no records across all samples, we have to clean that.
+
+Furthermore, we have to take care only the basal levels across all blocks. Also we have to clean the data on the metabolome, IP for repeated variables.
+
+```{r}
+variables_in_bacteria <- general_data[general_data$Orden %in% bacteria_phylum.abs$Order, ]
+```
+
+Because, we only take care of the GROUP, and OBESE variables on the analysis, we can get rid off this variables and store them apart in a new object. Furthermore, we have to have the same names for the rows, so let's keep it in another object.
+
+```{r}
+sujetos <- variables_in_bacteria$Paciente
+GROUP <- variables_in_bacteria$GROUP
+OBESE <- variables_in_bacteria$OBESE
+interaccion <-with(variables_in_bacteria,interaction(GROUP,OBESE))
+```
+
+## Clinical data.
+
+**NOTE we are going to include also on both levels of integration body measures**
+We exclude ISI because it is measured after the load of glucose, the mean values, to exclude redundancy of the data, ant the postprandial levels. 
+
+```{r}
+Clin.tmp <- variables_in_bacteria[,-c(1,2,3,4,5)] # get rid off orden, paciente, sex, group and obese
+auc_clin <- colnames(Clin.tmp)[grep("AUC",colnames(Clin.tmp))]
+mean_basal_clin<-colnames(Clin.tmp)[grep("mean",colnames(Clin.tmp))]
+isi <- colnames(Clin.tmp)[grep("ISI",colnames(Clin.tmp))]
+variables_clin <- colnames(Clin.tmp)
+w<-c(which(variables_clin %in% auc_clin),which(variables_clin %in% mean_basal_clin),which(variables_clin %in% isi))
+Clin <- Clin.tmp[,-w]
+rownames(Clin) <- sujetos
+```
+
+
+## IP data
+
+```{r}
+IP.tmp <- IP[IP$Paciente %in% variables_in_bacteria$Paciente,]
+redundant_variables <- c("Orden","Paciente","SEX","GROUP","OBESE","BMI")
+variables_ip <- colnames(IP.tmp)
+auc_ip <- variables_ip[grep("AUC",variables_ip)]
+mean_ip <- variables_ip[grep("mean",variables_ip)]
+w <- c(which(variables_ip %in% redundant_variables),which(variables_ip %in% auc_ip),which(variables_ip %in% mean_ip))
+IP.basal <- IP.tmp[,-w]
+rownames(IP.basal) <- sujetos
+
+```
+
+## Metabolome data.
+
+```{r}
+metabolome.basal.tmp <- metabolome[metabolome$Order %in% variables_in_bacteria$Orden,]
+redundant_data_meta <- c("Order","Sample","GROUP","OBESE")
+variables_meta <- colnames(metabolome.basal.tmp)
+mean_meta <- variables_meta[grep("mean",variables_meta)]
+auc_meta <- variables_meta[grep("AU[CG]",variables_meta)]
+w <- c(which(variables_meta %in% redundant_data_meta),which(variables_meta %in% mean_meta),which(variables_meta %in% auc_meta))
+metabolome.basal <- metabolome.basal.tmp[,-w]
+rownames(metabolome.basal) <- sujetos
+```
+
+## Microbiome data.
+
+### Phylum.
+
+```{r}
+phylum.abs.tmp <- phylum.abs
+redundant_data_ph <- c("GROUP","SEX","OBESE")
+phylum.tmp <- phylum.abs.tmp[,-c(ncol(phylum.abs.tmp)-2,ncol(phylum.abs.tmp)-1,ncol(phylum.abs.tmp))]
+phylum <- phylum.tmp[,colSums(phylum.tmp)>0]
+rownames(phylum) <- sujetos
+```
+
+### Genus
+
+```{r}
+genera.abs.tmp <- genera.abs
+redundant_data_ph <- c("GROUP","SEX","OBESE")
+genus.tmp.tmp <- genera.abs.tmp[,-c(ncol(genera.abs.tmp)-2,ncol(genera.abs.tmp)-1,ncol(genera.abs.tmp))]
+genus <- genus.tmp.tmp[,colSums(genus.tmp.tmp)>0]
+rownames(genus) <- sujetos
+```
+
+
+# INTEGRATIO METABOLOME-MICROBIOME (GENUS ABS)
+
+## Determime the relationship between data-sets
+Firstly we could perform a pls regression to undersntand properly the correlation between both datas-sets.
+
+```{r}
+datos <- list(metabolome = metabolome.basal,
+              genus = genus)
+res1.pls.met_micro <- mixOmics::pls(datos$metabolome,datos$genus,ncomp=1)
+rho<-cor(res1.pls.met_micro$variates$X,res1.pls.met_micro$variates$Y)
+```
+Thus, the design should be
+
+```{r}
+design = matrix(rho, ncol = length(datos), nrow = length(datos),
+                dimnames = list(names(datos), names(datos)))
+diag(design) = 0
+design
+```
+
+We are going to keep all variables since we do not have the power.
+
+
+
+```{r}
+
+diablo.integro<- block.plsda(datos,Y=interaccion, ncomp = 5, design = design)
+
+set.seed(123) # For reproducibility, remove for your analyses
+perf.diablo.integro = perf(diablo.integro, validation = 'Mfold', folds = 10, nrepeat = 10)
+
+#perf.diablo.tcga$error.rate  # Lists the different types of error rates
+
+# Plot of the error rates based on weighted vote
+plot(perf.diablo.integro)
+```
+
+
+```{r}
+ncomp <- perf.diablo.integro$choice.ncomp$WeightedVote["Overall.BER", "centroids.dist"]
+sgccda.res_met_gen = block.splsda(X = datos, Y = interaccion, ncomp = ncomp, design = design)
+```
+
+
+
+```{r}
+plotIndiv(sgccda.res_met_gen, ind.names = FALSE, legend = TRUE, title = 'DIABLO')
+
+```
+
+```{r}
+fn.plot <- function(X,ncomp1,ncomp2,title){
+  
+  grupos<- list(GROUP,OBESE)
+  Group <- grupos[[1]]
+  Group2<-grupos[[2]]
+  
+  X.df<-as.data.frame(X)
+  colnames(X.df) <- paste0("PC",1:dim(X.df)[2])
+  colx <- colnames(X.df)
+  colores<-1:length(levels(Group))
+  p1 <- ggplot(X.df,aes_string(x=colx[ncomp1],y=colx[ncomp2]))+
+    theme_article()+
+    geom_hline(yintercept = 0, color = "gray70") +
+    geom_vline(xintercept = 0, color = "gray70") +
+    geom_point(aes(color = Group,shape=Group2), alpha = 0.55, size = 3)+
+    scale_fill_discrete(name = "Group") + labs(x =colx[ncomp1], y = colx[ncomp2])+
+    scale_color_manual(values=colores)+ggtitle(title)
+  
+  return(p1)
+}
+
+
+plot_integration <- function(lista.variates){
+  
+  nombres <- names(lista.variates)
+  graficos.lista <- vector(mode="list",length=length(lista.variates))
+  for(i in 1:length(lista.variates)){
+    
+    graficos.lista[[i]]<-fn.plot(lista.variates[[i]],1,2,title=nombres[i])
+  }
+  
+  do.call("ggarrange",c(graficos.lista,common.legend = T,legend="bottom"))
+  }
+```
+
+
+
+```{r}
+fn.plot. <- function(X,ncomp1,ncomp2,title){
+  
+  grupos<- list(GROUP,OBESE)
+  Group <- grupos[[1]]
+  Group2<-grupos[[2]]
+  
+  X.df<-as.data.frame(X)
+  colnames(X.df) <- paste0("PC",1:dim(X.df)[2])
+  colx <- colnames(X.df)
+  colores<-1:length(levels(Group))
+  p1 <- ggplot(X.df,aes_string(x=colx[ncomp1],y=colx[ncomp2]))+
+    theme_article()+
+    geom_hline(yintercept = 0, color = "gray70") +
+    geom_vline(xintercept = 0, color = "gray70") +
+    geom_point(aes(color = Group,shape=Group2), alpha = 0.55, size = 3)+
+    scale_fill_discrete(name = "Group") + labs(x =colx[ncomp1], y = colx[ncomp2])+
+    scale_color_manual(values=colores)+ggtitle(title)
+  
+  return(p1)
+}
+
+
+plot_integration <- function(lista.variates){
+  
+  nombres <- names(lista.variates)
+  graficos.lista <- vector(mode="list",length=length(lista.variates))
+  for(i in 1:length(lista.variates)){
+    
+    graficos.lista[[i]]<-fn.plot(lista.variates[[i]],1,2,title=nombres[i])
+  }
+  
+  do.call("ggarrange",c(graficos.lista,common.legend = T,legend="bottom"))
+  }
+```
+
+
+
+
+```{r}
+fn.plot_all <- function(obj,what,ncomp1,ncomp2){
+  grupos<- list(GROUP,OBESE)
+  Group <- grupos[[1]]
+  Group2<-grupos[[2]]
+  
+  datos <- obj[what][[1]]
+  nombres_datos <- obj$names$colnames[1:(length(obj$names$colnames)-1)]
+  n <- length(nombres_datos)
+  lista_graficos <- vector(mode="list",length=n)
+  names(lista_graficos) <- nombres_datos
+  print(str(nombres_datos[["metabolome"]]))
+  if(what=="loadings"){
+  for(i in 1:n){
+    X <- datos[i]
+    X.df<-as.data.frame(X)
+    colnames(X.df) <- paste0("PC",1:dim(X.df)[2])
+    colx <- colnames(X.df)
+    colores<-1:length(levels(Group))
+    lista_graficos[[i]]<- ggplot(X.df,aes_string(x=colx[ncomp1],y=colx[ncomp2],label=nombres_datos[[i]]))+
+      theme_article()+
+      geom_hline(yintercept = 0, color = "gray70") +
+      geom_vline(xintercept = 0, color = "gray70") +
+      geom_point(aes(color = "red"), alpha = 0.55, size = 3)+
+      scale_fill_discrete(name = "Group")+ggtitle(nombres_datos[i])+
+      labs(x=paste(colx[ncomp1],round(100*obj$prop_expl_var[nombres_datos][i][ncomp1],2),"%"),                                                                        y = paste(colx[ncomp2],round(100*obj$prop_expl_var[nombres_datos][i][ncomp2],2),"%"))
+
+    
+  }
+  }else if(what=="scores")
+  for(i in 1:n){
+    
+    X <- datos[i]
+    X.df<-as.data.frame(X)
+    colnames(X.df) <- paste0("PC",1:dim(X.df)[2])
+    colx <- colnames(X.df)
+    colores<-1:length(levels(Group))
+    lista_graficos <- ggplot(X.df,aes_string(x=colx[ncomp1],y=colx[ncomp2]))+
+      theme_article()+
+      geom_hline(yintercept = 0, color = "gray70") +
+      geom_vline(xintercept = 0, color = "gray70") +
+      geom_point(aes(color = Group,shape=Group2), alpha = 0.55, size = 3)+
+      scale_fill_discrete(name = "Group") + labs(x =colx[ncomp1], y = colx[ncomp2])+
+      scale_color_manual(values=colores)+ggtitle(nombres_datos[i])+labs(x=paste(colx[ncomp1],round(100*obj$prop_expl_var[nombres_datos][[1]][ncomp1],2),"%"),
+                                                                        y = paste(colx[ncomp2],round(100*obj$prop_expl_var[nombres_datos][[1]][ncomp2],2),"%"))
+    
+  }
+  
+  return(lista_graficos)
+}
+
+```
+
+
+```{r}
+fn.plot_all(sgccda.res_met_gen,"loadings",1,2)
+
+```
+```{r}
+plotVar(sgccda.res_met_gen,overlap = F)
+
+```
+
+
+```{r}
+
+lista.variates.1 <-list(Metabolome = sgccda.res_met_gen$variates$metabolome,
+                      Microbiome = sgccda.res_met_gen$variates$genus)
+
+plot_integration(lista.variates.1)
+```
+
+
+```{r}
+fn.pairs <- function(X,Y,namex,namey,ncomp1,ncomp2){
+  
+  grupos<- list(GROUP,OBESE)
+  Group <- grupos[[1]]
+  Group2<-grupos[[2]]
+  
+  X.df<-as.data.frame(X)
+  colnames(X.df) <- paste0("PC_",namex,1:dim(X.df)[2])
+  colx <- colnames(X.df)
+  Y.df <- as.data.frame(Y)
+  colnames(Y.df) <- paste0("PC_",namey,1:dim(Y.df)[2])
+  coly <- colnames(Y.df)
+  datos_conjuntos <- cbind(X.df,Y.df)
+  colores<-1:length(levels(Group))
+  p1 <- ggplot(datos_conjuntos,aes_string(x=colx[ncomp1],y=coly[ncomp2]))+
+    theme_article()+theme(legend.position = "none")+
+    geom_hline(yintercept = 0, color = "gray70") +
+    geom_vline(xintercept = 0, color = "gray70") +
+    geom_point(aes(color = Group,shape=Group2), alpha = 0.55, size = 3)+
+    scale_fill_discrete(name = "Group") + ggtitle(paste(namex,namey,sep="-"))+
+    scale_color_manual(values=colores)
+  
+  return(p1)
+}
+
+
+
+fun_plot_comb <- function(lista.variates){
+  
+  
+  comb <- t(combn(names(lista.variates),2))
+  lista.graficos <- vector(mode="list",length=dim(comb)[1])
+  lista.graficos2 <- vector(mode="list",length=dim(comb)[1])
+  for(i in 1:dim(comb)[1]){
+  comb_i <- comb[i,]
+  X<-lista.variates[[comb_i[1]]]
+  Y <- lista.variates[[comb_i[2]]]
+  lista.graficos[[i]] <- fn.pairs(X,Y,comb_i[1],comb_i[2],1,2)
+  lista.graficos2[[i]] <- fn.pairs(X,Y,comb_i[1],comb_i[2],2,1)
+
+  
+  
+  }
+  
+  print(dim(comb))
+  if(dim(comb)[1]<=2){
+    
+      p1<-do.call("ggarrange", c(list(lista.graficos[[1]],lista.graficos2[[1]]), common.legend=T,legend="bottom"))
+
+    return(p1)
+  }else{
+  p1<-do.call("ggarrange", c(lista.graficos, common.legend=T,legend="bottom"))
+
+  p2<-do.call("ggarrange", c(lista.graficos2, common.legend=T,legend="bottom"))
+  return(list(p1,p2))
+  }
+
+}
+```
+
+
+
+
+```{r}
+
+
+lista.variates.1 <-list(Metabolome = sgccda.res_met_gen$variates$metabolome,
+                      Microbiome = sgccda.res_met_gen$variates$genus)
+fun_plot_comb(lista.variates.1)
+```
+
+
+```{r}
+
+
+```
+
+
+
+
+# Proper integration metabolome-microbiome. (genus abs)
+
+## Determime the relationship between data-sets
+Firstly we could perform a pls regression to undersntand properly the correlation between both datas-sets.
+
+```{r}
+datos <- list(metabolome = metabolome.basal,
+              genus = genus)
+res1.pls.met_micro <- mixOmics::pls(datos$metabolome,datos$genus,ncomp=1)
+rho<-cor(res1.pls.met_micro$variates$X,res1.pls.met_micro$variates$Y)
+```
+Thus, the design should be
+
+```{r}
+design = matrix(rho, ncol = length(datos), nrow = length(datos),
+                dimnames = list(names(datos), names(datos)))
+diag(design) = 0
+design
+```
+
+## Number of components.
+
+
+```{r}
+
+diablo.integro<- block.plsda(datos,Y=interaccion, ncomp = 5, design = design)
+
+set.seed(123) # For reproducibility, remove for your analyses
+perf.diablo.integro = perf(diablo.integro, validation = 'Mfold', folds = 10, nrepeat = 10)
+
+#perf.diablo.tcga$error.rate  # Lists the different types of error rates
+
+# Plot of the error rates based on weighted vote
+plot(perf.diablo.integro)
+```
+
+
+```{r}
+ncomp <- perf.diablo.integro$choice.ncomp$WeightedVote["Overall.BER", "centroids.dist"]
+
+```
+
+## Number of variables to select.
+
+```{r}
+BPPARAM <- BiocParallel::MulticoreParam(workers = parallel::detectCores()-1)
+test.keepX <- list(metabolome = c(5:9, seq(10, 25, 5)),
+                   genus = c(5:9, seq(10, 25, 5)))
+
+
+tune.diablo.met_gen <- tune.block.splsda(datos, interaccion, ncomp = ncomp,
+                              test.keepX = test.keepX, design = design,
+                              validation = 'Mfold', folds = 5, nrepeat = 2,
+                              dist = "centroids.dist",BPPARAM = BPPARAM)
+
+
+```
+
+```{r}
+list.keepX = tune.diablo.met_gen$choice.keepX
+
+```
+
+```{r}
+sgccda.res_met_gen = block.splsda(X = datos, Y = interaccion, ncomp = ncomp,
+                          keepX = list.keepX, design = design)
+```
+
+
+```{r}
+plotDiablo(sgccda.res_met_gen, ncomp = 1)
+
+```
+
+```{r}
+plotIndiv(sgccda.res_met_gen, ind.names = FALSE, legend = TRUE, title = 'DIABLO')
+
+```
+
+
+```{r}
+lista.variates.1 <-list(meta = sgccda.res_met_gen$variates$metabolome,
+                      genus = sgccda.res_met_gen$variates$genus)
+fun_plot_comb(lista.variates.1)
+```
+
+# TOTAL INTEGRATIVE ANALYSIS AT BASAL LEVEL.
+
+
+
+## Blocks with Genus absolute data, Scale=T
+
+
+Firstly let's investigate the relationship between blocks.
+
+```{r}
+
+datos <- list(clinical_data = Clin,
+              IP =IP.basal,
+              metabolome = metabolome.basal,
+              genus = genus)
+
+res1.pls.met_micro <- mixOmics::pls(datos$metabolome,datos$genus,ncomp=1)
+(rho_met_micro <- cor(res1.pls.met_micro$variates$X,res1.pls.met_micro$variates$Y))
+
+res1.pls.met_IP <- mixOmics::pls(datos$IP,datos$metabolome,ncomp = 1)
+(rho_met_ip <- cor(res1.pls.met_IP$variates$X,res1.pls.met_IP$variates$Y))
+
+res1.pls.met_clin <- mixOmics::pls(datos$metabolome,datos$clinical_data,ncomp=1)
+(rho_pls_met_clin <- cor(res1.pls.met_clin$variates$X,res1.pls.met_clin$variates$Y))
+
+res1.pls_micro_clin <- mixOmics::pls(datos$genus,datos$clinical_data,ncomp=1)
+(rho_pls_micro_clin <- cor(res1.pls_micro_clin$variates$X,res1.pls_micro_clin$variates$Y))
+
+res1.pls_micro_IP <- mixOmics::pls(datos$genus,datos$IP,ncomp = 1)
+(rho_pls_micro_IP <- cor(res1.pls_micro_IP$variates$X,res1.pls_micro_IP$variates$Y))
+
+res1.pls_IP_clin <- mixOmics::pls(datos$IP,datos$clinical_data,ncomp = 1)
+(rho_pls_IP_clin <- cor(res1.pls_IP_clin$variates$X,res1.pls_IP_clin$variates$Y))
+
+design =matrix(c(0,rho_pls_IP_clin,rho_pls_met_clin,rho_pls_micro_clin,
+         rho_pls_IP_clin,0,rho_met_ip,rho_pls_micro_IP,
+         rho_pls_met_clin,rho_met_ip,0,rho_met_micro,
+         rho_pls_micro_clin,rho_pls_micro_IP,rho_met_micro,0),ncol = 4,dimnames = list(names(datos),names(datos)))
+design
+```
+
+Now let's observe the optimal number of components.
+
+```{r}
+
+sgccda.res_total_1 = block.splsda(X = datos, Y=interaccion, ncomp = 10,
+                           design = design)
+
+set.seed(123) # for reproducibility, only when the `cpus' argument is not used
+# this code takes a couple of min to run
+perf.diablo_toltal_1 = mixOmics::perf(sgccda.res_total_1, validation = 'Mfold', folds = 10, nrepeat = 10)
+
+#perf.diablo  # lists the different outputs
+plot(perf.diablo_toltal_1)
+```
+
+
+```{r}
+perf.diablo_toltal_1$choice.ncomp$WeightedVote
+(ncomp = perf.diablo_toltal_1$choice.ncomp$WeightedVote["Overall.BER", "centroids.dist"])
+
+```
+
+
+
+```{r}
+BPPARAM <- BiocParallel::MulticoreParam(workers = parallel::detectCores()-1)
+test.keepX <- list(clinical_data =c(5:9, seq(10, 25, 5)),
+                   IP = c(5:9, seq(10, 25, 5)),
+                   metabolome = c(5:9, seq(10, 25, 5)),
+                   genus = c(5:9, seq(10, 25, 5)))
+
+
+tune.diablo.2 <- tune.block.splsda(datos, interaccion, ncomp = ncomp,
+                              test.keepX = test.keepX, design = design,
+                              validation = 'Mfold', folds = 5, nrepeat = 2,
+                              dist = "centroids.dist",BPPARAM = BPPARAM)
+
+
+```
+
+```{r}
+list.keepX = tune.diablo.2$choice.keepX
+# $clinical_data
+# [1] 25 15  5 25 25
+# 
+# $IP
+# [1] 10 10 10  6  6
+# 
+# $metabolome
+# [1]  5 10 25 20  6
+# 
+# $genus
+# [1] 25  8  5  5 20
+# 
+# ```
+```
+
+```{r}
+sgccda.res_genus = block.splsda(X = datos, Y = interaccion, ncomp = ncomp,
+                          keepX = list.keepX, design = design)
+```
+
+
+
+```{r}
+plotDiablo(sgccda.res_genus, ncomp = 1)
+
+```
+
+
+```{r}
+plotIndiv(sgccda.res_genus, ind.names = FALSE, legend = TRUE, title = 'DIABLO',study="global")
+
+```
+
+```{r}
+
+lista.variates <-list(clin=sgccda.res_genus$variates$clinical_data,
+                      ip = sgccda.res_genus$variates$IP,
+                      meta = sgccda.res_genus$variates$metabolome,
+                      micro = sgccda.res_genus$variates$genus)
+fun_plot_comb(lista.variates)
+
+
+
+
+```
+
+
+# TOTAL INTEGRATION ALL BLOCKS absolute abundance
+
+## SCALE=T abslute
+
+```{r}
+datos <- list(clinical_data = Clin,
+              IP =IP.basal,
+              metabolome = metabolome.basal,
+              genus = genus,
+              phylum = phylum)
+
+
+res1.pls.met_micro <- mixOmics::pls(datos$metabolome,datos$genus,ncomp=1,scale=T)
+(rho_met_micro <- cor(res1.pls.met_micro$variates$X,res1.pls.met_micro$variates$Y))
+
+res1.pls.met_IP <- mixOmics::pls(datos$IP,datos$metabolome,ncomp = 1,scale=T)
+(rho_met_ip <- cor(res1.pls.met_IP$variates$X,res1.pls.met_IP$variates$Y))
+
+res1.pls.met_clin <- mixOmics::pls(datos$metabolome,datos$clinical_data,ncomp=1,scale=T)
+(rho_pls_met_clin <- cor(res1.pls.met_clin$variates$X,res1.pls.met_clin$variates$Y))
+
+res1.pls_micro_clin <- mixOmics::pls(datos$genus,datos$clinical_data,ncomp=1,scale=T)
+(rho_pls_micro_clin <- cor(res1.pls_micro_clin$variates$X,res1.pls_micro_clin$variates$Y))
+
+res1.pls_micro_IP <- mixOmics::pls(datos$genus,datos$IP,ncomp = 1,scale=T)
+(rho_pls_micro_IP <- cor(res1.pls_micro_IP$variates$X,res1.pls_micro_IP$variates$Y))
+
+res1.pls_IP_clin <- mixOmics::pls(datos$IP,datos$clinical_data,ncomp = 1,scale=T)
+(rho_pls_IP_clin <- cor(res1.pls_IP_clin$variates$X,res1.pls_IP_clin$variates$Y))
+
+res1.pls.clin_filo<-mixOmics::pls(datos$phylum,datos$clinical_data,ncomp = 1,scale=T)
+(rho_pls_clin_filo <- cor(res1.pls.clin_filo$variates$X,res1.pls.clin_filo$variates$Y))
+
+res1.pls.IP_filo<-mixOmics::pls(datos$IP,datos$phylum,ncomp = 1,scale=T)
+(rho_pls_IP_filo <- cor(res1.pls.IP_filo$variates$X,res1.pls.IP_filo$variates$Y))
+
+
+res1.pls.met_filo<-mixOmics::pls(datos$metabolome,datos$phylum,ncomp = 1,scale=T)
+(rho_pls_met_filo <- cor(res1.pls.met_filo$variates$X,res1.pls.met_filo$variates$Y))
+
+res1.pls.micro_filo<-mixOmics::pls(datos$genus,datos$phylum,ncomp = 1,scale=T)
+(rho_pls_micro_filo <- cor(res1.pls.micro_filo$variates$X,res1.pls.micro_filo$variates$Y))
+
+
+design =matrix(c(0,rho_pls_IP_clin,rho_pls_met_clin,rho_pls_micro_clin,rho_pls_clin_filo,
+         rho_pls_IP_clin,0,rho_met_ip,rho_pls_micro_IP,rho_pls_IP_filo,
+         rho_pls_met_clin,rho_met_ip,0,rho_met_micro,rho_pls_met_filo,
+         rho_pls_micro_clin,rho_pls_micro_IP,rho_met_micro,0,rho_pls_micro_filo,
+         rho_pls_clin_filo,rho_pls_IP_filo,rho_pls_met_filo,rho_pls_micro_filo,0),ncol=5,dimnames = list(names(datos),names(datos)))
+
+
+design
+
+```
+
+
+```{r}
+sgccda.res_total = block.splsda(X = datos, Y=interaccion, ncomp = 10,
+                           design = design,scale=T)
+
+set.seed(123) # for reproducibility, only when the `cpus' argument is not used
+# this code takes a couple of min to run
+perf.diablo_total = mixOmics::perf(sgccda.res_total, validation = 'Mfold', folds = 10, nrepeat = 10,scale=F)
+
+#perf.diablo  # lists the different outputs
+plot(perf.diablo_total)
+```
+
+
+
+
+```{r}
+perf.diablo_total$choice.ncomp$WeightedVote
+(ncomp = perf.diablo_total$choice.ncomp$WeightedVote["Overall.BER", "centroids.dist"])
+
+```
+
+
+
+```{r}
+BPPARAM <- BiocParallel::MulticoreParam(workers = parallel::detectCores()-1)
+test.keepX <- list(clinical_data =c(5:9, seq(10, 25, 5)),
+                   IP = c(5:9, seq(10, 25, 5)),
+                   metabolome = c(5:9, seq(10, 25, 5)),
+                   phylum = c(5:9, seq(10, 25, 5)),
+                   genus = c(5:9, seq(10, 25, 5)))
+
+
+tune.diablo.3 <- tune.block.splsda(datos, interaccion, ncomp = ncomp,
+                              test.keepX = test.keepX, design = design,
+                              validation = 'Mfold', folds = 5, nrepeat = 2,
+                              dist = "centroids.dist",BPPARAM = BPPARAM)
+
+
+```
+
+```{r}
+list.keepX = tune.diablo.3$choice.keepX
+
+```
+
+```{r}
+sgccda.res_total = block.splsda(X = datos, Y = interaccion, ncomp = ncomp,
+                          keepX = list.keepX, design = design)
+```
+```{r}
+plotDiablo(sgccda.res_total, ncomp = 1)
+
+```
+
+
+
+```{r}
+  plotIndiv(sgccda.res_total, ind.names = FALSE, legend = TRUE, title = 'DIABLO',study="global")
+
+```
+
+```{r}
+lista.variates.5 <-list(clin=sgccda.res_total$variates$clinical_data,
+                      ip = sgccda.res_total$variates$IP,
+                      meta = sgccda.res_total$variates$metabolome,
+                      genus = sgccda.res_total$variates$genus,
+                      filo = sgccda.res_total$variates$phylum)
+
+
+fun_plot_comb(lista.variates.5)
+
+```

@@ -1,0 +1,1810 @@
+---
+title: Integration of omics and clinical data of the hormonal, metabolic, inflammatory,
+  and oxidative response in the different macronutrients of the diet
+author: "Edmond Geraud"
+subtitle: '`r params$subtitulo`'
+date: '`r format(Sys.Date(),"%e de %B, %Y")`' 
+output:
+  prettydoc::html_pretty:
+    theme: cayman
+    highlight: github
+    toc: true
+  html_document:
+    toc: true
+    toc_depth: 2
+header-includes:
+  - \usepackage[english]{babel}
+params:
+  
+  file_IP: Integromics_IPmarkers.xlsx
+  file_metabolome: Integromics_Metabolome.xlsx
+  file_general: Integromics_1.xlsx
+  file_microbiota : integromics_microbiota.xlsx
+  folder.data: ../../datos
+  subtitulo: FINAL RESULTS
+geometry: margin=2cm
+---
+```{r setup, include=FALSE}
+require(knitr)
+# include this code chunk as-is to set options
+opts_chunk$set(comment = NA, prompt = TRUE, tidy = T, 
+               fig.width = 7, fig.height = 7,echo = TRUE, 
+               message = FALSE, warning = FALSE, cache=TRUE, fig_caption = TRUE)
+Sys.setlocale("LC_TIME", "C")
+```
+
+## Load the libraries
+
+```{r libraries}
+
+list.of.packages <- c("xlsx","kableExtra","dplyr","ggplot2","egg","cowplot","patchwork","gridExtra","UsingR","car","lattice","ggpubr","ggbreak","GGally","reshape2","ggcorrplot","corrplot","rela","ggrepel","factoextra","chemometrics","sparsepca","vegan","ca","ade4","pls","OmicsPLS")
+new.packages <- list.of.packages[!(list.of.packages %in% installed.packages()[,"Package"])] ## check for packages not installed 
+if(length(new.packages)) install.packages(new.packages) ## install packages if necessary
+res<-unlist(lapply(list.of.packages, require,character.only = T)) ## load packages needed for the session
+if(any(res==F)){
+  list.of.packages[which(res==F)]  ## show those package if you have troubles to install.
+}
+
+list.of.bioc.packages <- c("phyloseq","pcaMethods","ropls","mixOmics")
+new.packages.bioc <- list.of.packages[!(list.of.bioc.packages %in% installed.packages()[,"Package"])]
+if(length(new.packages.bioc)) BiocManager::install(new.packages.bioc)
+res.bioc <- unlist(lapply(list.of.bioc.packages, require,character.only = T)) 
+if(any(res.bioc==F)){
+  list.of.packages[which(res.bioc==F)]  ## show those package if you have troubles to install.
+}
+```
+
+
+# Functions for loading data (microbiome)
+
+```{r}
+
+fn.discriminacion <- function(posthoc.df){
+  nombre.variable <- posthoc.df$nombre_variable
+  posthoc_df<-posthoc.df$df
+  variable.df<-posthoc.df$variable
+  valores.ajustados <- posthoc_df[,"p.adj"]
+  interaccion <- unique(as.vector(as.matrix(posthoc_df[,2:3])))
+  combinacion <- combn(interaccion,length(interaccion)-1)
+  cual.falta <-  interaccion[apply(combinacion, 2, 
+                     function(x) which(!unique(as.vector(combinacion)) %in% x))]
+  
+  lista_interaccion <- vector(mode="list",length=length(interaccion))
+  names(lista_interaccion)<- paste0(cual.falta,"_","interaccion")
+  for(comb_i in 1:length(lista_interaccion)){
+    
+    lista_interaccion[[names(lista_interaccion)[comb_i]]]<-cbind(rep(cual.falta[comb_i],length(lista_interaccion)-1),combinacion[,comb_i])
+    
+  }
+  
+  X <- posthoc_df[,2:3]
+  x1<- t(apply(X, 1, sort))
+  lista_res <- vector(mode="list",length=length(interaccion))
+  names(lista_res)<-names(lista_interaccion)
+  for(l in 1:length(lista_interaccion)){
+    
+    Y<-lista_interaccion[[names(lista_interaccion)[l]]]
+    y1<-t(apply(Y, 1, sort))
+    w.match <-match(do.call(paste,
+                          as.data.frame(y1)),
+                          do.call(paste, as.data.frame(x1)))
+    
+    lista_res[[names(lista_res)[l]]]<-posthoc_df[w.match,]
+    
+  }
+
+  condicion<-unlist(lapply(lista_res, function(x) all(x[,"p.adj"]<0.05)))
+  condicion.which.is.not.nan <- condicion[!is.na(condicion)]
+  if(any(condicion.which.is.not.nan)){
+    
+
+    significante <-lista_res[which(unlist(lapply(lista_res, function(x) all(x[,"p.adj"]<0.05)))==T)]
+    significante<-do.call("bind_rows",significante)
+    significante<-unique(significante[complete.cases(significante),])
+    interpretacion <-"Se discrimina"
+    
+  }else{
+    
+    significante <- do.call("bind_rows",lista_res)
+    significante<-unique(significante[complete.cases(significante),])
+    interpretacion <-"NO se discrimina"
+  }
+
+ return(list(resultado=significante,interpretacion=interpretacion))
+  
+}
+
+
+
+fn.decidetest <- function(X,fac){
+
+  homogeneidad <- car::leveneTest(X,fac)[[3]][1]
+  normalidad <- shapiro.test(X)$p.value
+
+  return(c(homogeneidad=homogeneidad,normalidad=normalidad))
+
+
+}
+DWin <- function(x) {diff(range(x)) < .Machine$double.eps ^ 0.5}
+box.group <- function(X,Y){dim(boxplot(X~Y,plot=F)$stats)[2]==length(levels(Y))}
+fn.signif <- function(lista_bloques){
+  ## lista_bloques es una lista que tiene las compoentes principales
+  which.is.factor <- which(lapply(lista_bloques,is.factor)==T)
+  
+  which.is.not.factor <- which(lapply(lista_bloques,is.factor)==F)
+  
+  factor_variables <- lista_bloques[which.is.factor]
+
+  datos.factor <- as.data.frame(do.call("bind_cols",factor_variables))
+
+  
+  which.is.data.frame<-unlist(lapply(lista_bloques[which.is.not.factor], is.data.frame))
+  
+  
+  
+  if(!any(which.is.data.frame)|| is.null(unlist(lapply(lista_bloques[which.is.not.factor],names)))){
+    
+    for(i in which.is.not.factor){
+
+    bloque_i<-data.frame(lista_bloques[[names(lista_bloques)[i]]])
+    colnames(bloque_i)<-paste0(names(lista_bloques)[i],"_",1:dim(bloque_i)[2])
+    lista_bloques[[names(lista_bloques)[i]]]<-bloque_i
+    
+    }
+    datos <- do.call(bind_cols,list(lista_bloques[which.is.not.factor]))
+  }
+  
+  datos<-datos[,-which(apply(datos, 2, DWin)==T)]
+  nombres.factores <-  names(factor_variables)
+  
+  bloques.n <- ncol(datos)
+
+  which.factor.2.levels <- which(unlist(lapply(factor_variables,function(x) length(levels(x))))<3)
+  which.factor.3orMore.levels <-which(unlist(lapply(factor_variables,function(x) length(levels(x))))>2)
+
+
+  #Primero hacemos test por componente univariante
+  res.dicotonomica <- data.frame(matrix(NA,nrow=length(which.factor.2.levels)*dim(datos)[2],ncol = 2))
+  colnames(res.dicotonomica) <- c("p-value","tipo-test")
+  k<-0
+  nombre.test <- vector(mode = "character",length=length(which.factor.2.levels)*dim(datos)[2])
+  for(i in 1:length(which.factor.2.levels)){
+
+    u<-which.factor.2.levels[i]
+    Y <- datos.factor[,u]
+
+    for(j in 1:ncol(datos)){
+      
+      k<-k+1
+
+      X <- datos[,j]
+        if(box.group(X,Y)==F){
+        message(paste("Componente ",colnames(datos)[j]," no tiene todos los niveles"))
+        next
+        }
+
+      datos_j <- data.frame(X=X,Y=Y)
+        
+      colnames(datos_j) <- c(colnames(datos)[j],colnames(datos.factor)[u])
+      frmla <- as.formula(paste0(colnames(datos)[j],"~",colnames(datos.factor[u])))
+      nombre.componente_j <- colnames(datos)[j]
+      decision.homo.normalidad <- fn.decidetest(X,Y)
+      homogeneidad<- decision.homo.normalidad[1]
+      normalidad <- decision.homo.normalidad[2]
+
+      if(all(boxplot(frmla,data=datos_j,plot=F)$stats==0)){
+
+          res.tmp <- "NO HAY VALORES EN LOS GRUPOS"
+          tipo.test <-"NO HAY"
+
+      }else if((normalidad<0.05 && homogeneidad<0.05)||(normalidad<0.05 && homogeneidad>0.05)){
+
+        res.tmp <- wilcox.test(frmla,data=datos_j)$p.value
+        tipo.test <- "Wilcox Test"
+
+      }else if(normalidad>0.05 && homogeneidad<0.05){
+        res.tmp <- t.test(frmla,data=datos_j,var.equal=F)$p.value
+        tipo.test <- "t test WELCH"
+      }else if(normalidad>0.05 && homogeneidad>0.05){
+        res.tmp <- t.test(frmla,data=datos_j,var.equal=T)$p.value
+        tipo.test <- "classic t.test"
+      }else{
+        print(c(normalidad,homogeneidad))
+      }
+      
+      res.dicotonomica[k,]<-c(res.tmp,tipo.test)
+      nombre.test_i<- paste(colnames(datos_j),collapse = "_")
+      nombre.test[k]<-nombre.test_i
+    }
+
+
+  }
+
+
+  rownames(res.dicotonomica)<-nombre.test
+  lista.res <- vector(mode="list",length = length(which.factor.3orMore.levels)*dim(datos)[2])
+  nombres.test <- vector(mode="character",length = 1)
+
+  k<-0
+    nombre.test <- vector(mode = "character",length=length(which.factor.2.levels)*dim(datos)[2])
+
+  for(m in which.factor.3orMore.levels){
+    
+      Y<-datos.factor[,m]
+
+      for(j in 1:ncol(datos)){
+        k<-k+1
+        X<- datos[,j]
+        
+        datos_j <- data.frame(X=X,Y=Y)
+        
+        colnames(datos_j) <- c(colnames(datos)[j],colnames(datos.factor)[m])
+
+      if(box.group(X,Y)==F){
+        message(paste("Componente ",colnames(datos)[j]," no tiene todos los niveles"))
+        next
+      }
+        decision.homo.normalidad <- fn.decidetest(X,Y)
+
+        homogeneidad <- decision.homo.normalidad[1]
+
+        normalidad <- decision.homo.normalidad[2]
+
+        frmla <- as.formula(paste0(colnames(datos)[j],"~",colnames(datos.factor[m])))
+        
+        mdl<-aov(frmla,data=datos_j)
+        
+        if((normalidad<0.05 || homogeneidad<0.05 ||shapiro.test(residuals(mdl))$p.value<0.05)){
+              krstest.pvalor <- kruskal.test(frmla,data=datos_j)$p.value
+             if(krstest.pvalor<0.05){
+               
+              
+              post_hoc<-data.frame(rstatix::dunn_test(data=datos_j,formula = frmla
+                                                      ,p.adjust.method = "fdr"))
+              post_hoc.list <- list(df=post_hoc,
+                                          variable=X,
+                                          nombre_variable=colnames(datos)[j])
+
+       significante.list<-fn.discriminacion(posthoc.df = post_hoc.list)
+
+          tipo.test <- "Kruskal-Wallis"
+          pvalor.tipo <- krstest.pvalor
+          }else{
+          res.tmp2 <- "No hay resultados significantes"
+          res.tmp <- "No hay diferencias entre grupos"
+          tipo.test <- "kruskal-wallis"
+          pvalor.tipo<- krstest.pvalor
+
+          }
+        }
+        else if((normalidad>0.05 && homogeneidad>0.05)){
+          
+          aov.pvalor <- summary(mdl)[[1]][1,5]
+          if(aov.pvalor<0.05){
+            
+              post_hoc<-data.frame(rstatix::games_howell_test(data=datos_j,formula = frmla))
+              post_hoc.list <- list(df=post_hoc,
+                                          variable=X,
+                                          factor=Y,
+                                          nombre_variable=colnames(datos)[j],
+                                          nombre_factor =colnames(datos.factor)[m])
+
+            significante.list<-fn.discriminacion(posthoc.df = post_hoc.list)
+          tipo.test <- "ANOVA"
+          pvalor.tipo <- aov.pvalor
+          }else{
+          res.tmp <- "No hay diferencias entre grupos"
+          res.tmp2 <- "No hay resultados"
+          tipo.test <- "ANOVA"
+          pvalor.tipo <- aov.pvalor
+          }
+      }
+
+
+      lista.res[[k]]<-list(resultado=res.tmp,tipo.test=tipo.test,pvalor=pvalor.tipo,significante=significante.list$resultado,interpretacion=significante.list$interpretacion)
+      nombre.test_i<- paste(colnames(datos_j),collapse = "_")
+      nombre.test[k]<-nombre.test_i
+
+      }
+
+
+
+  }
+
+  names(lista.res)<-nombre.test
+  resultado.analisis <- list(Variables_Dicotonomicas=res.dicotonomica,Variables_multiple=lista.res)
+  
+  
+  return(resultado.analisis)
+  }
+  
+proces_bacteria <- function(datos,tipo){
+
+	Order <- bacteria_phylum.abs$Order
+	variables_in_bacteria <- general_data[general_data$Orden %in% Order , ]
+	Sample<-variables_in_bacteria$Paciente
+
+
+	if(tipo=="genera"){
+
+		Order <- Order
+
+		X <- datos[-1,-1]
+		X<-apply(X,2,as.numeric)
+		colnames(X) <- datos[1,2:ncol(datos)]
+		rownames(X) <- Sample
+		X.rel <- 100*X/rowSums(X)
+
+
+	} else if(tipo=="phylum"){
+
+		X <- datos[,-c(1:2)]
+		colnames(X) <- colnames(datos)[3:ncol(datos)]
+		rownames(X) <- Sample
+		X.rel<-100*X/rowSums(X)
+	}
+
+	GROUP <-variables_in_bacteria$GROUP
+	SEX <- variables_in_bacteria$SEX
+	OBESE<- variables_in_bacteria$OBESE
+
+	X<-as.data.frame(X)
+	X.rel<-as.data.frame(X.rel)
+
+	X$GROUP<-GROUP
+	X$SEX<-SEX
+	X$OBESE<-OBESE
+
+
+	X.rel$GROUP<-GROUP
+	X.rel$SEX<-SEX
+	X.rel$OBESE<-OBESE
+
+	return(list(abs=X,rel=X.rel))
+
+}
+
+
+low.count.removal = function(
+                        data, # OTU count data frame of size n (sample) x p (OTU)
+                        percent=0.01 # cutoff chosen
+                        ){
+    keep.otu = which(colSums(data)*100/(sum(colSums(data))) > percent)
+    data.filter = data[,keep.otu]
+    return(list(data.filter = data.filter, keep.otu = keep.otu))
+}
+
+relative.fn <-function(data){
+  
+  return(100*data/rowSums(data))
+  
+}
+
+
+```
+
+
+# Load the data
+
+## Clinical data.
+
+```{r}
+general_data <- read.xlsx(file.path(params$folder.data,params$file_general),sheetIndex =1)
+general_data$SEX <- factor(general_data$SEX, levels = c(0, 2), labels = c("Female", "Male"))
+general_data$OBESE <- factor(general_data$OBESE, levels = c(0, 1), labels = c("No Obese", "Obese"))
+general_data$GROUP <- factor(general_data$GROUP, levels = c(0, 1, 2), labels = c("Female",  "PCOS", "Male"))
+```
+
+## IP data.
+
+```{r}
+IP_file<-file.path(params$folder.data,file=params$file_IP) ## file path of the data
+IP.tmp<-read.xlsx(IP_file,sheetIndex = 1)
+IP<-IP.tmp[,-7] # remove the missin values column
+IP$SEX <- factor(IP$SEX,levels=c(0,2),labels = c("Female","Male"))
+IP$OBESE <- factor(IP$OBESE,levels=c(0,1),labels = c("No Obese","Obese"))
+IP$GROUP <- factor(IP$GROUP,levels=c(0,1,2),labels = c("Female","PCOS","Male"))
+```
+
+
+## Metabolome data
+
+```{r}
+metabolome_file<-file.path(params$folder.data,file=params$file_metabolome) ## file path of the data
+metabolome.tmp<-read.xlsx(metabolome_file,sheetIndex = 1) # read the data
+metabolites_name <- read.xlsx(metabolome_file,sheetIndex = 2)$Metabolitos # read the names of the metabolites
+any(is.na(metabolome.tmp)) # there is a row of missing values.
+metabolome<-metabolome.tmp[-nrow(metabolome.tmp),] ## remove the missing value row
+metabolome$GROUP<-general_data$GROUP ## add GROUP variable 
+metabolome$OBESE <- general_data$OBESE ## add OBESE variables.
+```
+
+## Microbiome data.
+
+```{r}
+bacteria_phylum.abs <- as.data.frame(read.xlsx(file.path(params$folder.data,params$file_microbiota), sheetIndex = 1))
+bacteria_genera.abs <- as.data.frame(t(read.xlsx(file.path(params$folder.data,params$file_microbiota), sheetIndex = 3)))
+phylum.list <- proces_bacteria(bacteria_phylum.abs,tipo="phylum")
+genera.list <- proces_bacteria(bacteria_genera.abs,tipo="genera")
+
+phylum.abs <- phylum.list$abs;phylum.rel<-phylum.list$rel
+genera.abs <- genera.list$abs;genera.rel<-genera.list$rel
+```
+
+
+# Preprocess data according to the microbiome.
+
+Because we have less subjects on the microbiome, and we have phylum and genera with variables with no records across all samples, we have to clean that.
+
+Furthermore, we have to take care only the basal levels across all blocks. Also we have to clean the data on the metabolome, IP for repeated variables.
+
+```{r}
+variables_in_bacteria <- general_data[general_data$Orden %in% bacteria_phylum.abs$Order, ]
+```
+
+Because, we only take care of the GROUP, and OBESE variables on the analysis, we can get rid off this variables and store them apart in a new object. Furthermore, we have to have the same names for the rows, so let's keep it in another object.
+
+```{r}
+sujetos <- variables_in_bacteria$Paciente
+GROUP <- variables_in_bacteria$GROUP
+OBESE <- variables_in_bacteria$OBESE
+interaccion <-with(variables_in_bacteria,interaction(GROUP,OBESE))
+```
+
+## Clinical data.
+
+**NOTE we are going to include also on both levels of integration body measures**
+We exclude ISI because it is measured after the load of glucose, the mean values, to exclude redundancy of the data, ant the postprandial levels. 
+
+```{r}
+sujetos <- variables_in_bacteria$Paciente
+Clin.tmp <- variables_in_bacteria[,-c(1,2,3,4,5)] # get rid off orden, paciente, sex, group and obese
+auc_clin <- colnames(Clin.tmp)[grep("AUC",colnames(Clin.tmp))]
+mean_basal_clin<-colnames(Clin.tmp)[grep("_B$",colnames(Clin.tmp))]
+sog <- colnames(Clin.tmp)[grep("^SO[GLP]",colnames(Clin.tmp))]
+variables_clin <- colnames(Clin.tmp)
+testosterona <-colnames(Clin.tmp)[grep("TEST",colnames(Clin.tmp))]
+interr<-colnames(Clin.tmp)[grep("interaccion",colnames(Clin.tmp))]
+ratio <- colnames(Clin.tmp)[grep("Ratio",colnames(Clin.tmp))]
+w<-c(which(variables_clin %in% auc_clin),which(variables_clin %in% mean_basal_clin),which(variables_clin %in% sog),which(variables_clin %in% testosterona),
+which(variables_clin %in% interr),which(variables_clin %in% ratio))
+Clin <- Clin.tmp[,-w] 
+rownames(Clin) <- sujetos
+colnames(Clin)
+```
+
+
+## IP data
+
+```{r}
+IP.tmp <- IP[IP$Paciente %in% variables_in_bacteria$Paciente,]
+redundant_variables <- c("Orden","Paciente","SEX","GROUP","OBESE","BMI")
+variables_ip <- colnames(IP.tmp)
+auc_ip <- variables_ip[grep("AUC",variables_ip)]
+mean_ip <- variables_ip[grep("_0$",variables_ip)]
+w <- c(which(variables_ip %in% redundant_variables),which(variables_ip %in% auc_ip),which(variables_ip %in% mean_ip))
+IP.basal <- IP.tmp[,-w]
+rownames(IP.basal) <- sujetos
+```
+
+## Metabolome data.
+
+```{r}
+metabolome.basal.tmp <- metabolome[metabolome$Order %in% variables_in_bacteria$Orden,]
+redundant_data_meta <- c("Order","Sample","GROUP","OBESE")
+variables_meta <- colnames(metabolome.basal.tmp)
+mean_meta <- variables_meta[grep("_[GLP]0$",variables_meta)]
+auc_meta <- variables_meta[grep("AU[CG]",variables_meta)]
+w <- c(which(variables_meta %in% redundant_data_meta),which(variables_meta %in% mean_meta),which(variables_meta %in% auc_meta))
+metabolome.basal <- metabolome.basal.tmp[,-w]
+rownames(metabolome.basal) <- sujetos
+colnames(metabolome.basal)
+```
+
+## Microbiome data.
+
+### Phylum.
+
+```{r}
+phylum.abs.tmp <- phylum.abs
+redundant_data_ph <- c("GROUP","SEX","OBESE")
+phylum.tmp <- phylum.abs.tmp[,-c(ncol(phylum.abs.tmp)-2,ncol(phylum.abs.tmp)-1,ncol(phylum.abs.tmp))]
+phylum <- phylum.tmp[,colSums(phylum.tmp)>0]
+rownames(phylum) <- sujetos
+## removal of unidentified phyla
+phylum<-phylum[,-grep("^ud",colnames(phylum))]
+
+colnames(phylum)
+```
+
+### Genus
+
+```{r}
+genera.abs.tmp <- genera.abs
+redundant_data_ph <- c("GROUP","SEX","OBESE")
+genus.tmp.tmp <- genera.abs.tmp[,-c(ncol(genera.abs.tmp)-2,ncol(genera.abs.tmp)-1,ncol(genera.abs.tmp))]
+genus <- genus.tmp.tmp[,colSums(genus.tmp.tmp)>0]
+rownames(genus) <- sujetos
+## removal of genus unidentified
+
+genus<-genus[,-grep("^ud-",colnames(genus))]
+colnames(genus)
+```
+
+
+## Pretreatment of microbiome data.
+
+```{r}
+genus.offset<-genus+1
+phylum.offset<-phylum+1
+sum(which(genus.offset == 0))
+
+
+result.filter.genus <- low.count.removal(genus.offset, percent=0.001)
+result.filter.phylum<- low.count.removal(phylum.offset, percent=0.001)
+
+genus.filter <- result.filter.genus$data.filter
+phylum.filter <- result.filter.phylum$data.filter
+
+# length(result.filter$keep.otu) 
+lib.size.genus <- apply(genus.filter, 1, sum)
+lib.size.phylum <- apply(phylum.filter,1,sum)
+par(mfrow=c(1,2))
+barplot(lib.size.genus)
+barplot(lib.size.phylum)
+
+
+genus.clr.tmp <- logratio.transfo(as.matrix(genus.filter), logratio = 'CLR', offset = 0)
+genus.rel <- relative.fn(genus)
+
+
+phylum.clr.tmp <- logratio.transfo(as.matrix(phylum.filter), logratio = 'CLR', offset = 0) 
+phylum.rel.tmp <- relative.fn(phylum)
+```
+
+```{r}
+interaccion <- interaction(variables_in_bacteria$GROUP,variables_in_bacteria$OBESE)
+variables_in_bacteria$interaccion <- interaccion
+grupo <-levels(interaccion)
+w<-vector(mode="list",length=6)
+names(w)<-levels(interaccion)
+for(i in 1:6){
+ w[[names(w)[i]]]<-which(apply(as.matrix(phylum.clr.tmp[
+  rownames(phylum.clr.tmp)%in%
+    variables_in_bacteria[variables_in_bacteria$interaccion==grupo[i],"Paciente"],]),2,function(x) sum(x)==0))
+}
+
+w2<-vector(mode="list",length=6)
+names(w2)<-levels(interaccion)
+for(i in 1:6){
+ w2[[names(w2)[i]]]<-which(apply(as.matrix(phylum.clr.tmp[
+  rownames(phylum.clr.tmp)%in%
+    variables_in_bacteria[variables_in_bacteria$interaccion==grupo[i],"Paciente"],]),2,function(x) sum(x)>0))
+  }
+
+w3<-lapply(w2, names)
+phylum.clr<-phylum.clr.tmp[,Reduce(intersect,w3)]
+
+interaccion <- interaction(variables_in_bacteria$GROUP,variables_in_bacteria$OBESE)
+variables_in_bacteria$interaccion <- interaccion
+grupo <-levels(interaccion)
+w<-vector(mode="list",length=6)
+names(w)<-levels(interaccion)
+for(i in 1:6){
+ w[[names(w)[i]]]<-which(apply(as.matrix(genus.clr.tmp[
+  rownames(genus.clr.tmp)%in%
+    variables_in_bacteria[variables_in_bacteria$interaccion==grupo[i],"Paciente"],]),2,function(x) sum(x)==0))
+}
+
+w2<-vector(mode="list",length=6)
+names(w2)<-levels(interaccion)
+for(i in 1:6){
+ w2[[names(w2)[i]]]<-which(apply(as.matrix(genus.clr.tmp[
+  rownames(genus.clr.tmp)%in%
+    variables_in_bacteria[variables_in_bacteria$interaccion==grupo[i],"Paciente"],]),2,function(x) sum(x)>0))
+  }
+
+w3<-lapply(w2, names)
+genus.clr<-genus.clr.tmp[,Reduce(intersect,w3)]
+```
+
+
+
+```{r}
+# names(w2)<-levels(interaccion)
+# for(i in 1:6){
+#  w2[[names(w2)[i]]]<-which(apply(as.matrix(genera.abs[
+#   rownames(genera.abs)%in%
+#     variables_in_bacteria[variables_in_bacteria$interaccion==grupo[i],"Paciente"],-c(grep("^ud-",colnames(genera.abs)),285,284,283)]),2,function(x) sum(x)>0))
+# }
+
+```
+
+
+# Primero probamos con PLS2
+```{r}
+res_o2m_scaleT <- vector(mode = "list", length = 4)
+ 
+ modelos_o2pls <- function(X, Y) {
+ 
+     X <- scale(X)
+     Y <- scale(Y)
+     n <- 1
+ 
+     while (n <= 1) {
+         res_cv <- crossval_o2m_adjR2(X, Y, 1:4, 0:4, 0:4, nr_folds = 3)
+         res_cv_min_mse <- res_cv[which.min(res_cv[, 1]), ]
+         n <- as.numeric(res_cv_min_mse[2])
+ 
+     }
+ 
+     nx <- as.numeric(res_cv_min_mse[3])
+     ny <- as.numeric(res_cv_min_mse[4])
+ 
+     res <- o2m2(X = X, Y = Y, n = n, nx = nx, ny = ny)
+ 
+     return(res)
+ 
+ 
+ }
+ 
+ 
+datos <- list(clinical_data = as.matrix(Clin),
+              IP =as.matrix(IP.basal),
+              metabolome = as.matrix(metabolome.basal),
+              microbiome = scale(as.matrix(phylum.clr)))
+ res <- modelos_o2pls(datos$metabolome,datos$microbiome)
+```
+
+```{r}
+ plot_O2PLS <- function(obj_pls, title, xcomp, ycomp, xorto, yorto, size = 1.5, glineas = 0.25) {
+     grupos <- list(variables_in_bacteria$GROUP, variables_in_bacteria$OBESE)
+     Group <- grupos[[1]]
+     Group2 <- grupos[[2]]
+ 
+     colores <- 1:length(levels(Group))
+     labels <- variables_in_bacteria$Paciente
+     X.joint <- as.data.frame(obj_pls$Tt)
+     colnames(X.joint) <- paste0("X_Joint", 1:ncol(X.joint))
+     compxjoint <- colnames(X.joint)
+     Y.joint <- as.data.frame(obj_pls$U)
+     colnames(Y.joint) <- paste0("Y_Joint", 1:ncol(Y.joint))
+     compyjoint <- colnames(Y.joint)
+     X.orto <- as.data.frame(obj_pls$T_Yosc)
+     colnames(X.orto) <- paste0("X_Ortho", 1:ncol(X.orto))
+     compxorto <- colnames(X.orto)
+     Y.orto <- as.data.frame(obj_pls$U_Xosc)
+     colnames(Y.orto) <- paste0("Y_Ortho", 1:ncol(Y.orto))
+     compyorto <- colnames(Y.orto)
+ 
+     ## Construimos los dataframespara los gráficos.
+ 
+     data_conjunto <- cbind(X.joint, Y.joint)
+     data_XYorto <- cbind(X.joint, Y.orto)
+     data_YXorto <- cbind(Y.joint, X.orto)
+     data_orto <- cbind(X.orto, Y.orto)
+     ## Grafico conjunto Primero las componentes conjuntas.
+ 
+     p1 <- ggplot(data_conjunto, aes_string(x = compxjoint[xcomp], y = compyjoint[ycomp])) +  theme(legend.position = "none") + geom_hline(yintercept = 0, color = "gray70") +geom_vline(xintercept = 0, color = "gray70") + geom_point(aes(color = Group,shape = Group2), alpha = 0.5, size = 3) + scale_fill_discrete(name = "Group")
+     # avoiding labels superposition
+ 
+ 
+ 
+     p2 <- ggplot(data_XYorto, aes_string(x = compxjoint[xcomp], y = compyorto[yorto])) + theme(legend.position = "none") + geom_hline(yintercept = 0, color = "gray70") + geom_vline(xintercept = 0, color = "gray70") + geom_point(aes(color = Group, shape = Group2), alpha = 0.5, size = 3) + scale_fill_discrete(name = "Group")
+     # avoiding labels superposition
+ 
+ 
+     p3 <- ggplot(data_YXorto, aes_string(x = compyjoint[ycomp], y = compxorto[xorto])) +
+         theme(legend.position = "none") + geom_hline(yintercept = 0, color = "gray70") +  geom_vline(xintercept = 0, color = "gray70") + geom_point(aes(color = Group, shape = Group2), alpha = 0.5, size = 3) + scale_fill_discrete(name = "Group")
+     # avoiding labels superposition
+ 
+ 
+     p4 <- ggplot(data_orto, aes_string(x = compxorto[xorto], y = compyorto[yorto])) +         theme(legend.position = "none") + geom_hline(yintercept = 0, color = "gray70")  +  geom_vline(xintercept = 0, color = "gray70") + geom_point(aes(color = Group,shape = Group2), alpha = 0.5, size = 3) + scale_fill_discrete(name = "Group")
+     # avoiding labels superposition
+ 
+ 
+     ggarrange(p1, p2, p3, p4, ncol = 2, nrow = 2, common.legend = T, legend = "bottom")
+ 
+ 
+ 
+ }
+```
+
+```{r}
+plot_O2PLS(res,"",1,2,1,1)
+```
+
+```{r}
+boxplot(res$Tt[,2]~interaccion,las=2)
+
+```
+
+# Metodos inferenciales
+
+## Empezamos con analisis univariante inferencial sobre cada una de las compoentnes
+```{r}
+
+datos <- list(clinical_data = as.matrix(Clin),
+              IP =as.matrix(IP.basal),
+              metabolome = as.matrix(metabolome.basal),
+              genus = as.matrix(scale(genus.clr)),
+              phylum = as.matrix(scale(phylum.clr)))  
+
+
+lista_bloques<-list(X_joint=res$Tt,Y_joint=res$U,X_orth=res$T_Yosc,Y_orth=res$U_Xosc,interaccion=variables_in_bacteria$interaccion,grupo=variables_in_bacteria$GROUP,obesidad=variables_in_bacteria$OBESE,sexo=variables_in_bacteria$SEX)
+res.sig <-fn.signif(lista_bloques)
+
+```
+
+```{r}
+
+
+
+
+fn.decidetest <- function(X,fac){
+
+  homogeneidad <- car::leveneTest(X,fac)[[3]][1]
+  normalidad <- shapiro.test(X)$p.value
+
+  return(c(homogeneidad=homogeneidad,normalidad=normalidad))
+
+
+}
+DWin <- function(x) {diff(range(x)) < .Machine$double.eps ^ 0.5}
+box.group <- function(X,Y){dim(boxplot(X~Y,plot=F)$stats)[2]==length(levels(Y))}
+box.group2 <- function(X,Y,Z){
+  tmp<-boxplot(Y~X*Z,plot=F)$stats
+  res <-dim(tmp)[2]==length(levels(interaction(X,Z)))
+  return(res)
+  }
+fn.signif <- function(lista_bloques){
+  ## lista_bloques es una lista que tiene las compoentes principales
+lista_bloques<-list(X_joint=res$Tt,Y_joint=res$U,X_orth=res$T_Yosc,Y_orth=res$U_Xosc,interaccion=variables_in_bacteria$interaccion,grupo=variables_in_bacteria$GROUP,obesidad=variables_in_bacteria$OBESE,sexo=variables_in_bacteria$SEX)
+  which.is.factor <- which(lapply(lista_bloques,is.factor)==T)
+  
+  which.is.not.factor <- which(lapply(lista_bloques,is.factor)==F)
+  
+  factor_variables <- lista_bloques[which.is.factor]
+
+  datos.factor <- as.data.frame(do.call("bind_cols",factor_variables))
+
+  
+  which.is.data.frame<-unlist(lapply(lista_bloques[which.is.not.factor], is.data.frame))
+  
+  
+  
+  if(!any(which.is.data.frame)|| is.null(unlist(lapply(lista_bloques[which.is.not.factor],names)))){
+    
+    for(i in which.is.not.factor){
+
+    bloque_i<-data.frame(lista_bloques[[names(lista_bloques)[i]]])
+    colnames(bloque_i)<-paste0(names(lista_bloques)[i],"_",1:dim(bloque_i)[2])
+    lista_bloques[[names(lista_bloques)[i]]]<-bloque_i
+    
+    }
+    datos <- do.call(bind_cols,list(lista_bloques[which.is.not.factor]))
+  }
+  
+  datos<-datos[,-which(apply(datos, 2, DWin)==T)]
+  nombres.factores <-  names(factor_variables)
+  
+  bloques.n <- ncol(datos)
+
+  which.factor.2.levels <- which(unlist(lapply(factor_variables,function(x) length(levels(x))))<3)
+  which.factor.3orMore.levels <-which(unlist(lapply(factor_variables,function(x) length(levels(x))))>2)
+
+
+  #Primero hacemos test por componente univariante
+  res.dicotonomica <- data.frame(matrix(NA,nrow=length(which.factor.2.levels)*dim(datos)[2],ncol = 2))
+  colnames(res.dicotonomica) <- c("p-value","tipo-test")
+  k<-0
+  nombre.test <- vector(mode = "character",length=length(which.factor.2.levels)*dim(datos)[2])
+  for(i in 1:length(which.factor.2.levels)){
+
+    u<-which.factor.2.levels[i]
+    Y <- datos.factor[,u]
+
+    for(j in 1:ncol(datos)){
+      
+      k<-k+1
+
+      X <- datos[,j]
+        if(box.group(X,Y)==F){
+        message(paste("Componente ",colnames(datos)[j]," no tiene todos los niveles"))
+        next
+        }
+
+      datos_j <- data.frame(X=X,Y=Y)
+        
+      colnames(datos_j) <- c(colnames(datos)[j],colnames(datos.factor)[u])
+      frmla <- as.formula(paste0(colnames(datos)[j],"~",colnames(datos.factor[u])))
+      nombre.componente_j <- colnames(datos)[j]
+      decision.homo.normalidad <- fn.decidetest(X,Y)
+      homogeneidad<- decision.homo.normalidad[1]
+      normalidad <- decision.homo.normalidad[2]
+
+      if(all(boxplot(frmla,data=datos_j,plot=F)$stats==0)){
+
+          res.tmp <- "NO HAY VALORES EN LOS GRUPOS"
+          tipo.test <-"NO HAY"
+
+      }else if((normalidad<0.05 && homogeneidad<0.05)||(normalidad<0.05 && homogeneidad>0.05)){
+
+        res.tmp <- wilcox.test(frmla,data=datos_j)$p.value
+        tipo.test <- "Wilcox Test"
+
+      }else if(normalidad>0.05 && homogeneidad<0.05){
+        res.tmp <- t.test(frmla,data=datos_j,var.equal=F)$p.value
+        tipo.test <- "t test WELCH"
+      }else if(normalidad>0.05 && homogeneidad>0.05){
+        res.tmp <- t.test(frmla,data=datos_j,var.equal=T)$p.value
+        tipo.test <- "classic t.test"
+      }else{
+        print(c(normalidad,homogeneidad))
+      }
+      
+      res.dicotonomica[k,]<-c(res.tmp,tipo.test)
+      nombre.test_i<- paste(colnames(datos_j),collapse = "_")
+      nombre.test[k]<-nombre.test_i
+    }
+
+
+  }
+
+
+  rownames(res.dicotonomica)<-nombre.test
+  lista.res <- vector(mode="list",length = length(which.factor.3orMore.levels)*dim(datos)[2])
+  nombres.test <- vector(mode="character",length = 1)
+
+  k<-0
+    nombre.test <- vector(mode = "character",length=length(which.factor.2.levels)*dim(datos)[2])
+
+  for(m in which.factor.3orMore.levels){
+    
+      Y<-datos.factor[,m]
+
+      for(j in 1:ncol(datos)){
+        k<-k+1
+        X<- datos[,j]
+        
+        datos_j <- data.frame(X=X,Y=Y)
+        
+        colnames(datos_j) <- c(colnames(datos)[j],colnames(datos.factor)[m])
+
+      if(box.group(X,Y)==F){
+        message(paste("Componente ",colnames(datos)[j]," no tiene todos los niveles"))
+        next
+      }
+        decision.homo.normalidad <- fn.decidetest(X,Y)
+
+        homogeneidad <- decision.homo.normalidad[1]
+
+        normalidad <- decision.homo.normalidad[2]
+
+        frmla <- as.formula(paste0(colnames(datos)[j],"~",colnames(datos.factor[m])))
+        
+        mdl<-aov(frmla,data=datos_j)
+        
+        if((normalidad<0.05 || homogeneidad<0.05 ||shapiro.test(residuals(mdl))$p.value<0.05)){
+              krstest.pvalor <- kruskal.test(frmla,data=datos_j)$p.value
+             if(krstest.pvalor<0.05){
+               
+              
+              post_hoc<-data.frame(rstatix::dunn_test(data=datos_j,formula = frmla
+                                                      ,p.adjust.method = "fdr"))
+              post_hoc.list <- list(df=post_hoc,
+                                          variable=X,
+                                          nombre_variable=colnames(datos)[j])
+
+       significante.list<-fn.discriminacion(posthoc.df = post_hoc.list)
+            significante.tmp <- lapply(significante.list$resultado,
+                                     function(x) x[which(x[,ncol(x)-1]<0.05),])
+          res.tmp <- unique(do.call("bind_rows",significante.tmp))
+          res.tmp2 <- significante.list$significante
+          tipo.test <- "Kruskal-Wallis"
+          pvalor.tipo <- krstest.pvalor
+          }else{
+          res.tmp2 <- "No hay resultados significantes"
+          res.tmp <- "No hay diferencias entre grupos"
+          tipo.test <- "kruskal-wallis"
+          pvalor.tipo<- krstest.pvalor
+
+          }
+        }
+        else if((normalidad>0.05 && homogeneidad>0.05)){
+          
+          aov.pvalor <- summary(mdl)[[1]][1,5]
+          if(aov.pvalor<0.05){
+            
+              post_hoc<-data.frame(rstatix::games_howell_test(data=datos_j,formula = frmla))
+              post_hoc.list <- list(df=post_hoc,
+                                          variable=X,
+                                          nombre_variable=colnames(datos)[j])
+
+            significante.list<-fn.discriminacion(posthoc.df = post_hoc.list)
+            significante.tmp <- lapply(significante.list$resultado,
+                                     function(x) x[which(x[,ncol(x)-1]<0.05),])
+          res.tmp <- unique(do.call("bind_rows",significante.tmp))
+          res.tmp2 <- significante.list$significante
+          tipo.test <- "ANOVA"
+          pvalor.tipo <- aov.pvalor
+          }else{
+          res.tmp <- "No hay diferencias entre grupos"
+          res.tmp2 <- "No hay resultados"
+          tipo.test <- "ANOVA"
+          pvalor.tipo <- aov.pvalor
+          }
+      }
+
+
+      lista.res[[k]]<-list(resultado=res.tmp,tipo.test=tipo.test,pvalor=pvalor.tipo,significante=res.tmp2)
+      nombre.test_i<- paste(colnames(datos_j),collapse = "_")
+      nombre.test[k]<-nombre.test_i
+
+      }
+
+      ## Ahora hacemos anova 2 vias
+
+      datos.factor.no.interaccion<-datos.factor
+
+  }
+
+  names(lista.res)<-nombre.test
+  resultado.analisis <- list(Variables_Dicotonomicas=res.dicotonomica,Variables_multiple=lista.res)
+ 
+  
+  
+  return(resultado.analisis)
+  }
+```
+
+
+```{r}
+fn.pre_suposiciones <- function(W){
+  w<-which(unlist(lapply(W,is.numeric))==T)
+  w. <- which(unlist(lapply(W,is.numeric))==F)
+  Y<-as.numeric(W[,w])
+  X<- W[,w.[1]]
+  Z<- W[,w.[2]]
+    homogeneidad <- s20x::levene.test(as.formula(paste(colnames(W)[w],"~",
+                            colnames(W)[w.[1]],"*",
+                            colnames(W)[w.[2]]))
+,data=W,show.table = F)[[5]][1]
+    normalidad <-shapiro.test(Y)$p.value
+   
+    return(c(homogeneidad=homogeneidad,normalidad=normalidad))
+
+
+}
+
+fn.otrastransformaciones <- function(Y){
+
+  if(is.data.frame(Y)){
+    Y<-as.numeric(Y[,1])
+  }
+  if(all(Y>0)){
+      
+      original <- list(var.ori=Y,
+                       overY=1/Y,
+                       overYsq = 1/(Y^2)
+                       ,overYtri=1/(Y^3),
+                       oversq = 1/sqrt(Y),
+                       logy=log(Y),
+                       squared=Y^2,
+                       tri=Y^3,
+                       root = sqrt(Y),
+                       overlog = 1/log(Y))
+      
+     
+    }else{
+       
+       original <- list(var.ori=Y,overY=1/Y,
+                        overYsq = 1/(Y^2),
+                        overYtri=1/(Y^3),
+                        squared=Y^2,
+                        tri=Y^3)
+     }
+    Y.plusmean<-Y+mean(Y)
+
+    if(all(Y.plusmean>0)){
+           plusmean <- list(media=Y.plusmean,
+                            overY=1/Y.plusmean,overYsq = 1/(Y.plusmean^2),
+                            overYtri=1/(Y.plusmean^3),
+                             oversq = 1/sqrt(Y.plusmean),
+                             logy=log(Y.plusmean),
+                            squared=Y.plusmean^2,tri=Y.plusmean^3)
+       
+     }else{
+     plusmean <- list(media=Y.plusmean,
+                            overY=1/Y.plusmean,overYsq = 1/(Y.plusmean^2),
+                            overYtri=1/(Y.plusmean^3),
+                           squared=Y.plusmean^2,
+                            tri=Y.plusmean^3)
+       
+     }
+     
+     y.scaled <- scale(Y)
+     if(all(y.scaled>0)){
+       scaled <- list(escalado=y.scaled,
+                      overY=1/y.scaled,
+                      overYsq=1/(y.scaled^2),
+                      overYtri=1/(y.scaled^3),
+                      squared=y.scaled^2,
+                      tri=y.scaled^3,
+                      root=sqrt(y.scaled),
+                      overroot = 1/sqrt(y.scaled),
+                      logoaritmo = log(y.scaled),
+                      overlog = 1/log(y.scaled))
+
+ 
+     }else{
+              scaled <- list(escalado=y.scaled,
+                      overY=1/y.scaled,
+                      overYsq=1/(y.scaled^2),
+                      overYtri=1/(y.scaled^3),
+                      squared=y.scaled^2,
+                      tri=y.scaled^3)
+
+       
+     }
+         
+    Y.sc<-scale(Y,center=F)
+    if(all(Y.sc>0)){
+            onlyscaled <- list(scaladonomedia=Y.sc,
+                               overY=1/Y.sc,
+                               overYsq =1/(Y.sc^2),
+                               overYtri=1/(Y.sc^3),
+                               squared=Y.sc^2,
+                               tri=Y.sc^3,
+                               root=sqrt(Y.sc),
+                               overroot=1/sqrt(Y.sc),
+                               log=log(Y.sc),
+                               overlog = 1/log(Y.sc))
+
+      
+    }else{
+       onlyscaled <- list(scaladonomedia=Y.sc,
+                               overY=1/Y.sc,
+                               overYsq =1/(Y.sc^2),
+                               overYtri=1/(Y.sc^3),
+                               squared=Y.sc^2,
+                               tri=Y.sc^3)
+    }
+
+    return(list(original=original,plusmean=plusmean,scaled=scaled,onlyscaled=onlyscaled))
+  
+}
+
+fn.summary.transformaciones <- function(datos_i){
+  
+  w<-which(unlist(lapply(datos_i,is.numeric))==T)
+  w. <- which(unlist(lapply(datos_i,is.numeric))==F)
+  Y<-as.numeric(datos_i[,w])
+  X<- datos_i[,w.[1]]
+  Z<- datos_i[,w.[2]]
+    
+
+    lista.transformaciones<-fn.otrastransformaciones(Y)
+        aux.fn <- function(x){
+          x<-lista.transformaciones[[i]]
+          vector.list <- vector(mode="logical",length=length(x))
+          names(vector.list)<-names(x)
+          for(m in 1:length(x)){
+            
+            datos_trans <- data.frame(X=X,Z=Z,Y=x[[m]])
+            colnames(datos_trans)<-colnames(datos_i)
+            if(all(is.na(datos_trans$Y))){
+              vector.list[names(vector.list)[m]]<-F
+            }else{
+              
+                          suposiciones<-fn.pre_suposiciones(W = datos_trans)
+            if(suposiciones[1]<0.05||suposiciones[2]<0.05){
+
+              vector.list[names(vector.list)[m]]<-F
+              
+            }else{
+              vector.list[names(vector.list)[m]]<-T
+
+            }
+            
+            }
+
+          }
+            return(vector.list)
+
+        } 
+        which.transformation.list <- vector(mode="list",length=length(lista.transformaciones))
+        for(i in 1:length(which.transformation.list)){
+                  which.transformation.list[[i]] <- which(unlist(lapply(lista.transformaciones[[i]],aux.fn))==T)
+          
+        }
+        which.transformation<-unlist(which.transformation.list)
+        if(length(which.transformation)>1){
+
+          warning(message("Hay mas de una transfomracion posible ",names(lista.transformaciones)[which.transformation]))
+          return(list(transformation=lista.transformaciones[which.transformation],
+            comment=paste("Hay mas de una transfomracion posible ",names(lista.transformaciones)[which.transformation])))
+
+        }else if(length(which.transformation)==0){
+
+          return(list(transformation=as.numeric(datos_i[,w]),comment="No hay transformacion posible"))
+
+        }else if(length(which.transformation)==1){
+
+            return(list(transformation=unlist(lista.transformaciones[which.transformation]),
+            comment=paste("La transformacion es ",names(lista.transformaciones)[which.transformation])))
+        }
+    
+}
+```
+
+
+```{r}
+fn.transformaciones.boxcox <- function(datos_j.){
+  ## antes de todo, preparamos los datos
+
+  w<-which(unlist(lapply(datos_j.,is.numeric))==T)
+  w. <- which(unlist(lapply(datos_j.,is.numeric))==F)
+  Y<-as.numeric(datos_j.[,w])
+  X<- datos_j.[,w.[1]]
+  Z<- datos_j.[,w.[2]]
+  W<-datos_j.
+  suposiciones<-fn.pre_suposiciones(W = datos_j.)
+  homogeneidad<-suposiciones[1]
+  normalidad <- suposiciones[2]
+  if(normalidad<0.05||homogeneidad<0.05){
+
+
+    if(all(Y>0)){
+
+      midf <-as.data.frame(datos_j.)
+      mdlo<- as.formula(paste(colnames(midf)[w],"~",
+                            colnames(midf)[w.[1]],"*",
+                            colnames(midf)[w.[2]]))
+      b<-MASS::boxcox(mdlo,data=midf,plotit=F)
+      lambda <- b$x[which.max(b$y)] # -0.02
+      if(lambda==0){
+        
+        Y.box <- log(Y)
+      }else{
+              Y.box <- ((Y ^ lambda) - 1) / lambda
+
+        
+      }
+
+      datos_trans <- data.frame(X=X,Z=Z,Y=Y.box)
+      colnames(datos_trans)<-colnames(datos_j.)
+      W<-datos_trans
+
+      suposiciones<-fn.pre_suposiciones(W = W)
+
+      if(suposiciones[1]<0.05||suposiciones[2]<0.05){
+          datos_i<-W
+          sumario.transformaciones <-fn.summary.transformaciones(datos_i = W )
+          if(sumario.transformaciones$comment=="No hay transformacion posible"){
+              warning(message("No hay transformacion posible despues de boxcox"))
+
+            return(sumario.transformaciones)
+
+          }else if(length(sumario.transformaciones$transformation)==1){
+
+            return(sumario.transformaciones)
+
+          }else if(length(sumario.transformaciones$transformation)>1){
+
+            warning(message("Se utiliza la primera trnasformacion disponible"))
+
+            return(sumario.transformaciones)
+
+          }
+
+      }else{
+
+        return(list(transformation=Y.box,comment="Transformacion Boxcox"))
+      }
+
+    }else{
+
+          sumario.transformaciones <-fn.summary.transformaciones(datos_j.)
+          if(sumario.transformaciones$comment=="No hay transformacion posible"){
+              warning(message("NO hay transformacion posible"))
+
+            return(sumario.transformaciones)
+
+          }else if(length(sumario.transformaciones$transformation)==1){
+
+            return(sumario.transformaciones)
+
+          }else if(length(sumario.transformaciones$transformation)>1){
+
+            warning(message("Se utiliza la primera trnasformacion disponible"))
+
+            return(sumario.transformaciones)
+          }
+    }
+
+  }else{
+    retornar <-list(transformation=Y,comment="No es necesario transformar")
+    return(retornar)
+  }
+
+
+
+
+
+}
+```
+
+
+```{r}
+
+fun.anova2way<-function(lista_bloques){
+
+  which.is.factor <- which(lapply(lista_bloques,is.factor)==T)
+  
+  which.is.not.factor <- which(lapply(lista_bloques,is.factor)==F)
+  
+  factor_variables <- lista_bloques[which.is.factor]
+
+  datos.factor <- as.data.frame(do.call("bind_cols",factor_variables))
+
+  which.is.data.frame<-unlist(lapply(lista_bloques[which.is.not.factor], is.data.frame))
+  
+
+  
+ if(any(which.is.data.frame)==F|| is.null(unlist(lapply(lista_bloques[which.is.not.factor],names)))){
+    
+    for(i in which.is.not.factor){
+
+    bloque_i<-data.frame(lista_bloques[[names(lista_bloques)[i]]])
+    colnames(bloque_i)<-paste0(names(lista_bloques)[i],"_",1:dim(bloque_i)[2])
+    lista_bloques[[names(lista_bloques)[i]]]<-bloque_i
+    
+    }
+    datos <- do.call(bind_cols,list(lista_bloques[which.is.not.factor]))
+ }else{
+    datos<-data.frame(do.call(bind_cols,lista_bloques[[which.is.data.frame]]))
+ }
+  if(!length(which(apply(datos, 2, DWin)==T))==0){
+      datos<-datos[,-which(apply(datos, 2, DWin)==T)]
+  }
+  resultado <- vector("list",length=ncol(datos))
+  names(resultado)<-colnames(datos)
+  nombres.factores <-  names(factor_variables)
+  
+  bloques.n <- ncol(datos)
+  X<-datos.factor[,1]
+  Z<-datos.factor[,2]
+   
+      for(j in 1:ncol(datos)){
+        print(j)
+        Y<- data.frame(datos[,j])
+        colnames(Y)<-colnames(datos)[j]
+        datos_j <- bind_cols(datos.factor,Y)
+        datos_j.tmp <- data.frame(Y=Y,X=X,Z=Z)
+
+    
+      if(box.group2(Y=Y[,1],X=X,
+                    Z=Z)==F){
+        message(paste("Componente ",colnames(datos)[j]," no tiene todos los niveles"))
+        next
+      }       
+
+          datos_j.<-datos_j
+          resultado.trans <- fn.transformaciones.boxcox(datos_j. = datos_j.)
+
+        if(resultado.trans$comment=="No es necesario transformar"){
+
+          resultado[[names(resultado)[j]]]<-c("No es necesario transformar",Y,colnames(datos)[j])
+
+        }else{
+
+
+          resultado[[names(resultado)[j]]]<-list(resultado.trans$comment,resultado.trans$transformation,colnames(datos)[j])
+
+        }
+
+
+
+        }
+
+        return(resultado)
+}
+
+
+            
+
+
+```
+
+```{r}
+fn.diagnostico <- function(datos,mdl,corte.influencia,corte.leverage,grlib){
+  
+  
+            s<-summary(lm(sqrt(abs(residuals(mdl)))~fitted(mdl)))
+            ## miramos homogeneidad
+            homogeneidad <-s$coefficients[2,4]
+            ##miramos normalidad
+            normalidad.residuos <-shapiro.test(residuals(mdl))$p.value
+            #miramos leverage
+            hatv <- hatvalues(mdl)
+            names(hatv)<-rownames(datos)
+            leverage.names <- hatv[which(hatv> corte.leverage)]
+            ## miramos influencia
+            cooksdis <-cooks.distance(mdl) 
+            names(cooksdis)<-rownames(datos)
+            cookdis.names <-cooksdis[which(cooks.distance(mdl)>corte.influencia)]
+            ## miramos outliers
+            stud <-rstudent(mdl)
+            names(stud)<-rownames(datos)
+            stud.names <-stud[which(abs(stud) > abs(qt(0.05/(2*n),grlib)))]
+  
+            return(list(homogeneidad=homogeneidad,normalidad=normalidad.residuos,
+                     leverage.names=leverage.names,cookdis.names=cookdis.names,
+                     outliers=stud.names))
+  
+  
+}
+
+```
+
+
+
+```{r}
+
+
+
+```
+
+```{r}
+
+datos. <- list(clinical_data = as.matrix(Clin),
+              IP =as.matrix(IP.basal),
+              metabolome = as.matrix(metabolome.basal),
+              phylum = scale(as.matrix(phylum.clr)),
+              genus = scale(as.matrix(genus.clr)),
+              grupo = variables_in_bacteria$GROUP,
+              obesidad = variables_in_bacteria$OBESE)
+
+lista_bloques<-list(df=as.data.frame(datos.$clinical_data),grupo=variables_in_bacteria$GROUP,obese=variables_in_bacteria$OBESE)
+
+
+
+
+```
+
+```{r}
+fun.simple2wayanova <- function(modelo,datos,Y,iteracion,anova_tabla,diagnostico){
+
+                    comparacion<-rstatix::tukey_hsd(modelo)
+                    post_hoc.list <- list(df=comparacion,
+                                                variable=Y,
+                                                nombre_variable=colnames(datos)[iteracion])
+                    
+                    significancia <- data.frame(fn.discriminacion(posthoc.df = post_hoc.list)$resultado)
+                    discriminante<-data.frame(fn.discriminacion(posthoc.df=post_hoc.list)$interpretacion)
+
+    
+                      resultado_i<-list(anova_table=anova_tabla,
+                                      anova_significante="SI",
+                                      signicancia=significancia,
+                                      discriminante=discriminante,
+                                      comparacion="grupo,obesidad,obesidad:grupo",
+                                      leverage=diagnostico$leverage.names,
+                                      cook=diagnostico$cookdis.names,
+                                      outliers =diagnostico$outliers,
+                                      homogeneidad=diagnostico$homogeneidad,
+                                      normalidad.residuos=diagnostico$normalidad)    
+
+                    return(resultado_i)
+
+                    
+}
+```
+
+```{r}
+//
+```
+
+```{r}
+fun.anova2way.diagres <- function(lista_bloques){
+  
+  lista_bloques<-list(df=as.data.frame(datos.$metabolome),grupo=variables_in_bacteria$GROUP,obese=variables_in_bacteria$OBESE)
+
+  which.is.not.factor <- which(lapply(lista_bloques,is.factor)==F)
+  which.is.factor <- which(lapply(lista_bloques,is.factor)==T)
+
+  factor_variables <- lista_bloques[which.is.factor]
+
+    if(length(which.is.factor)!=2){
+
+         stop(error(message("Debe haber dos factores estamos haciendo ANOVA dos vias")))
+    }
+
+  datos.factor <- as.data.frame(do.call("bind_cols",factor_variables))
+
+  which.is.data.frame<-unlist(lapply(lista_bloques[which.is.not.factor], is.data.frame))
+
+
+
+    if(any(which.is.data.frame)==F|| is.null(unlist(lapply(lista_bloques[which.is.not.factor],names)))){
+
+    for(i in which.is.not.factor){
+
+    bloque_i<-data.frame(lista_bloques[[names(lista_bloques)[i]]])
+    colnames(bloque_i)<-paste0(names(lista_bloques)[i],"_",1:dim(bloque_i)[2])
+    lista_bloques[[names(lista_bloques)[i]]]<-bloque_i
+
+    }
+    datos <- do.call(bind_cols,list(lista_bloques[which.is.not.factor]))
+    }else{
+       datos<-data.frame(do.call(bind_cols,lista_bloques[[which.is.data.frame]]))
+    }
+    if(!length(which(apply(datos, 2, DWin)==T))==0){
+      datos<-datos[,-which(apply(datos, 2, DWin)==T)]
+    }
+  rownames(datos)<-rownames(lista_bloques[[1]])
+  resultado <- vector("list",length=ncol(datos))
+  names(resultado)<-colnames(datos)
+  nombres.factores <-  names(factor_variables)
+  grupo<-factor_variables[[1]]
+  obesidad <- factor_variables[[2]]
+  bloques.n <- ncol(datos)
+  resultado.tmp <- fun.anova2way(lista_bloques = lista_bloques)
+
+  p<-length(which.is.factor) +1 # por el intercepto
+  n<-nrow(datos)
+  ## parametros para solo un factor
+  corte.leverage.1 <- 2*(p-1)/n
+  corte.influencia.1 <- 4/(n-p-2-1)
+  grlib.1<-  n-p-2
+  ## parametros para dos factores
+  corte.leverage<- 2*p/n
+  corte.influencia <- 4/(n-p-1)
+  grlib <- n-p-1
+  ## parametros para interaccion
+  corte.leverage.interaccion <- 2*(p+1)/n
+  corte.influencia.interaccion <- 4/(n-p)
+  grlib.interaccion <- n-p
+
+  resultado <- vector(mode="list",length=ncol(datos))
+  names(resultado) <- colnames(datos)
+    for(j in 1:ncol(datos)){
+        j<-7
+        message("empezamos bucle por variable", colnames(datos)[j], " es decir ",j,"\n")
+        resultado.tmp_i<-resultado.tmp[[j]]
+        Y<-resultado.tmp_i[[2]]
+        commentario <-resultado.tmp_i[[1]]
+        nombre.variable<-resultado.tmp_i[[3]]
+        #creamos el modelo
+      
+        mdl.complete<- lm(Y~obesidad*grupo , contrasts=list(obesidad=contr.sum, grupo=contr.sum))
+
+        formula.sugerida <- as.character(step(mdl.complete,trace = 0)$formula)
+        formula.sugerida <- paste(formula.sugerida[2],formula.sugerida[1],formula.sugerida[3:length(formula.sugerida)])
+
+        ## Comprobamos suposiciones del modelo completo
+
+        diagnostico <-fn.diagnostico(datos,mdl.complete,
+                                              corte.influencia = corte.influencia.interaccion,
+                                              corte.leverage = corte.leverage.interaccion,
+                                              grlib = grlib.interaccion)
+        
+        anova_i<-car::Anova(mdl.complete,type=3)
+        nombres.grupos <- rownames(anova_i)
+        p.values.anova <- anova_i[[4]][!is.na(anova_i[[4]])]
+
+        if(diagnostico$homogeneidad>0.05 && diagnostico$normalidad>0.05){
+
+          message("Se cumplen las asunciones de la virgen\n")
+
+          if(any(p.values.anova<0.05)){
+
+            w <- which(p.values.anova<0.05)
+            nombres.grupos.significantes<- rownames(anova_i)[w]
+            message("Existen diferencias entre grupos, concretamente en, ",paste(nombres.grupos.significantes," "),"\n")
+            nombre.aver.resultado <- nombres.grupos[which(nombres.grupos %in% nombres.grupos.significantes)]            
+            if(length(nombre.aver.resultado)==1){
+
+              message("solamente tenemos un grupo significante\n")
+
+              if(nombre.aver.resultado=="grupo"){
+                ## procedemos a saber si podemos simplificar
+                message("Y es el GRUPO\n")
+                mdl.simplified <- glm(Y~grupo)
+                anova.anova <-anova(mdl.simplified,mdl.complete)
+                anova.anova.pvalue <- anova.anova[[6]][2]
+                anova_simplified_i <- anova(mdl.simplified)
+                anova_simplified_i.pvalue <- anova_simplified_i[[5]][1]
+                if(anova.anova.pvalue>0.05){
+                  message("Se ha sugerido la formula" ,formula.sugerida, "y tenemos la formula ",as.character(mdl.simplified$formula),"\n")
+                  diagnostico.simplified <- fn.diagnostico(datos,mdl.simplified,
+                    corte.influencia=corte.influencia.1,corte.leverage=corte.leverage.1,grlib=grlib.1)
+                  message("Se pudo simplificar con solmanete la varaible grupo\n")
+                  if(diagnostico.simplified$homogeneidad>0.05 && diagnostico.simplified$normalidad>0.05){
+
+                    message("El modelo simmplificado cumple las suposociones con el grupo\n")
+
+                    if(anova_simplified_i.pvalue<0.05){
+                      message("Anova simplificado por grupo es significante, procedemos con pairwaiste test\n")
+                        comparacion<-rstatix::tukey_hsd(mdl.simplified)
+                        post_hoc.list <- list(df=comparacion,
+                                                    variable=Y,
+                                                    nombre_variable=colnames(datos)[j])
+                        
+                        significancia <- data.frame(fn.discriminacion(post_hoc.list)$resultado)
+                        discriminante<-data.frame(fn.discriminacion(post_hoc.list)$interpretacion)
+                        
+                        resultado_i<-list(anova_table=anova_simplified_i,
+                                          anova_significante="SI",
+                                          signicancia=significancia,
+                                          discriminante=discriminante,
+                                          comparacion="obesidad,obesidad",
+                                          leverage=diagnostico$leverage.names,
+                                          cook=diagnostico$cookdis.names,
+                                          outliers =diagnostico$outliers,
+                                          homogeneidad=diagnostico$homogeneidad,
+                                          normalidad.residuos=diagnostico$normalidad)  
+
+                    }else if(anova_simplified_i.pvalue>0.05){
+                           message("Anova simplificado por grupo NO es significante, procedemos con el resultado\n")
+
+                            resultado_i<-list(anova_table=anova_simplified_i,
+                                          anova_significante="NO",
+                                          signicancia=NA,
+                                          discriminante=NA,
+                                          comparacion="grupos",
+                                          leverage=diagnostico$leverage.names,
+                                          cook=diagnostico$cookdis.names,
+                                          outliers =diagnostico$outliers,
+                                          homogeneidad=diagnostico$homogeneidad,
+                                          normalidad.residuos=diagnostico$normalidad) 
+
+                    }
+
+
+                    }else if (diagnostico.simplified$homogeneidad<0.05 || diagnostico.simplified$normalidad<0.05){
+                      message("El modelo simplificado no cumple las suposiciones con el grupo, procedemos con el completo\n")
+
+                        resultado_i<-fun.simple2wayanova(mdl.complete,datos,Y,j,anova_i,diagnostico)
+
+                    }
+
+                }else{
+                    message("No se pudo simplificar, pero es significativo\n")
+
+                        resultado_i<-fun.simple2wayanova(mdl.complete,datos,Y,j,anova_i,diagnostico)
+
+                }
+
+
+              }else if(nombre.aver.resultado=="obesidad"){
+                    mdl.simplified <- glm(Y~obesidad)
+                    anova.anova <-anova(mdl.simplified,mdl.complete)
+                    anova.anova.pvalue <- anova.anova[[6]][2]
+                    anova_simplified_i <- anova(mdl.simplified)
+                    anova_simplified_i.pvalue <- anova_simplified_i[[5]][1]
+                   if(anova.anova.pvalue>0.05){
+                    message("Se ha sugerido la formula" ,formula.sugerida, "y tenemos la formula ",as.character(mdl.simplified$formula),"\n")
+
+                      diagnostico.simplified <- fn.diagnostico(datos,mdl.simplified,
+                        corte.influencia=corte.influencia.1,corte.leverage=corte.leverage.1,grlib=grlib.1)
+                      message("Se pudo simplificar con solmanete la varaible obesidad\n")
+                      if(diagnostico.simplified$homogeneidad>0.05 && diagnostico.simplified$normalidad>0.05){
+
+                        message("El modelo simmplificado cumple las suposociones con la obesidad\n")
+                        if(anova_simplified_i.pvalue<0.05){
+
+                          message("Anova simplificado por grupo es significante, procedemos con t.test varianzas iguales\n")
+
+
+                            resultado_i<-list(anova_table=anova_simplified_i,
+                                          anova_significante="SI",
+                                          signicancia=t.test(Y,obesidad,var.equal=T),
+                                          discriminante="SOLO ES OBESIDAD",
+                                          comparacion="grupos",
+                                          leverage=diagnostico$leverage.names,
+                                          cook=diagnostico$cookdis.names,
+                                          outliers =diagnostico$outliers,
+                                          homogeneidad=diagnostico$homogeneidad,
+                                          normalidad.residuos=diagnostico$normalidad) 
+
+
+                        }
+
+                        }else if (diagnostico.simplified$homogeneidad<0.05 || diagnostico.simplified$normalidad<0.05){
+                          message("El modelo simplificado no cumple las suposiciones con la obesidad, pero procedemos con t test o wilcoxon\n") 
+
+                            if(diagnostico.simplified$homogeneidad<0.05 && diagnostico.simplified$normalidad>0.05){
+                              message("Hacemos un t.test welch")
+
+                                resultado_i<-list(anova_table=anova_simplified_i,
+                                          anova_significante="SI",
+                                          signicancia=t.test(Y,obesidad,var.equal=F),
+                                          discriminante="SOLO ES OBESIDAD",
+                                          comparacion="grupos",
+                                          leverage=diagnostico$leverage.names,
+                                          cook=diagnostico$cookdis.names,
+                                          outliers =diagnostico$outliers,
+                                          homogeneidad=diagnostico$homogeneidad,
+                                          normalidad.residuos=diagnostico$normalidad) 
+
+
+                            }else if(diagnostico.simplified$homogeneidad<0.05 && diagnostico.simplified$normalidad<0.05){
+                                message("Hacemos un wilcox test")
+
+                                  resultado_i<-list(anova_table=anova_simplified_i,
+                                                    anova_significante="SI",
+                                                    signicancia=wilcox.test(Y,obesidad),
+                                                    discriminante="SOLO ES OBESIDAD",
+                                                    comparacion="grupos",
+                                                    leverage=diagnostico$leverage.names,
+                                                    cook=diagnostico$cookdis.names,
+                                                    outliers =diagnostico$outliers,
+                                                    homogeneidad=diagnostico$homogeneidad,
+                                                    normalidad.residuos=diagnostico$normalidad) 
+
+                            }
+
+                        }
+
+                    }else{
+                        message("No se pudo simplificar, pero es significativo\n")
+
+                            resultado_i<-fun.simple2wayanova(mdl.complete,datos,Y,j,anova_i,diagnostico)
+
+                    }
+
+
+                    message("aqui donde conyo estamos ",colnames(datos)[j], " iteracion ",j)
+
+              }else if(nombre.aver.resultado=="obesidad:grupo"){
+                  
+                message("TENEMOS UNA INTERACCION")
+                  resultado_i<-fun.simple2wayanova(modelo = mdl.complete,datos = datos,Y = Y,iteracion = j,anova_tabla = anova_i,diagnostico = diagnostico)
+                
+                }
+
+            }else if(length(nombre.aver.resultado)==2){
+
+              message("tenemos dos grupos significantes")
+
+              if(all(nombre.aver.resultado %in% c("obesidad","grupo"))){
+                ## procedemos a saber si podemos simplificar
+                message("Y es el GRUPO y la OBESIDAD")
+                mdl.simplified <- lm(Y~obesidad+grupo)
+                anova.anova <-anova(mdl.simplified,mdl.complete)
+                anova.anova.pvalue <- anova.anova[[6]][2]
+                anova_simplified_i <- car::Anova(mdl.simplified,type=2)
+                anova_simplified_i.pvalue <- anova_simplified_i[[4]][1:2]
+                if(anova.anova.pvalue>0.05){
+                  message("Se ha sugerido la formula" ,formula.sugerida, "y tenemos la formula ",as.character(mdl.simplified$formula))
+
+
+                  diagnostico.simplified <- fn.diagnostico(datos,mdl.simplified,
+                                                            corte.influencia=corte.influencia,
+                                                            corte.leverage=corte.leverage,grlib=grlib)
+                  message("Se pudo simplificar sin interaccion\n")
+                  if(diagnostico.simplified$homogeneidad>0.05 && diagnostico.simplified$normalidad>0.05){
+
+                        message("El modelo simmplificado cumple las suposociones con el grupo\n")
+                        if(all(anova_simplified_i.pvalue<0.05)){
+                          message("Anova simplificado por obesidad grupo y obesidad es significante, procedemos con tukey test\n")
+
+                                comparacion<-rstatix::tukey_hsd(mdl.simplified)
+                                post_hoc.list <- list(df=comparacion,
+                                                            variable=Y,
+                                                            nombre_variable=colnames(datos)[j])
+                                
+                                significancia <- data.frame(fn.discriminacion(post_hoc.list)$resultado)
+                                discriminante<-data.frame(fn.discriminacion(post_hoc.list)$interpretacion)
+                                
+                                resultado_i<-list(anova_table=anova_simplified_i,
+                                                  anova_significante="SI",
+                                                  signicancia=significancia,
+                                                  discriminante=discriminante,
+                                                  comparacion="grupo,obesidad",
+                                                  leverage=diagnostico$leverage.names,
+                                                  cook=diagnostico$cookdis.names,
+                                                  outliers =diagnostico$outliers,
+                                                  homogeneidad=diagnostico$homogeneidad,
+                                                  normalidad.residuos=diagnostico$normalidad)  
+
+
+                        }else{
+                          message("Anova simplificado no es significante por grupo y obesidad\n")
+
+                                resultado_i<-list(anova_table=anova_simplified_i,
+                                                  anova_significante="NO",
+                                                  signicancia=NA,
+                                                  discriminante=NA,
+                                                  comparacion="grupo,obesidad",
+                                                  leverage=diagnostico$leverage.names,
+                                                  cook=diagnostico$cookdis.names,
+                                                  outliers =diagnostico$outliers,
+                                                  homogeneidad=diagnostico$homogeneidad,
+                                                  normalidad.residuos=diagnostico$normalidad)  
+                        }
+
+
+                    }else if (diagnostico.simplified$homogeneidad<0.05 || diagnostico.simplified$normalidad<0.05){
+                      message("El modelo simplificado no cumple las suposiciones con el grupo, se podra hacer anova 2 vias no parametrico ??\n,
+                        se procede con e modelo completo")
+
+                            resultado_i<-fun.simple2wayanova(mdl.complete,datos,Y,j,anova_i,diagnostico)
+
+                    }
+
+                }else{
+                    message("No se pudo simplificar, pero es significativo")
+
+                        resultado_i<-fun.simple2wayanova(mdl.complete,datos,Y,j,anova_i,diagnostico)
+
+                }
+
+
+              }
+
+
+            }else{
+                message("Todas las variables son significativas, se procede con el modelo completo \n")
+                message("Se ha sugerido la formula" ,formula.sugerida, "y tenemos la formula ",as.character(mdl.complete$formula))
+
+                    resultado_i<-fun.simple2wayanova(modelo = mdl.complete,datos = datos,Y = Y,iteracion = j,anova_tabla = anova_i,diagnostico = diagnostico)
+                                                
+
+
+
+            }
+
+
+          }else{
+            message("No hay resultados significantes entre grupos")
+
+                  resultado_i<-list(anova_table=anova_i,
+                                                  anova_significante="NO",
+                                                  signicancia=NA,
+                                                  discriminante=NA,
+                                                  comparacion="grupo,obesidad, e interaccion",
+                                                  leverage=diagnostico$leverage.names,
+                                                  cook=diagnostico$cookdis.names,
+                                                  outliers =diagnostico$outliers,
+                                                  homogeneidad=diagnostico$homogeneidad,
+                                                  normalidad.residuos=diagnostico$normalidad)  
+          }
+
+        }else{
+            message("no se cumplen las asunciones de la virgen")
+            resultado_i<-list(anova_table=anova_i,
+                                                  anova_significante="NO",
+                                                  signicancia=NA,
+                                                  discriminante=NA,
+                                                  comparacion="NO ES POSIBLE EL MODELO",
+                                                  leverage=diagnostico$leverage.names,
+                                                  cook=diagnostico$cookdis.names,
+                                                  outliers =diagnostico$outliers,
+                                                  homogeneidad=diagnostico$homogeneidad,
+                                                  normalidad.residuos=diagnostico$normalidad)  
+
+        }
+
+
+
+
+
+
+
+        message("Fin del bucle en ", colnames(datos)[j])
+
+        resultado[[names(resultado)[j]]]<-resultado_i
+  }
+
+
+  message("Fin de la funcion")
+  return(resultado)
+}
+
+
+
+```
+

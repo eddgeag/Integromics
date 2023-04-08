@@ -1,0 +1,3496 @@
+---
+title: Integration of omics and clinical data of the hormonal, metabolic, inflammatory,
+  and oxidative response in the different macronutrients of the diet
+author: "Edmond Geraud"
+subtitle: '`r params$subtitulo`'
+date: '`r format(Sys.Date(),"%e de %B, %Y")`' 
+output:
+  prettydoc::html_pretty:
+    theme: cayman
+    highlight: github
+    toc: true
+  html_document:
+    toc: true
+    toc_depth: 2
+header-includes:
+  - \usepackage[english]{babel}
+params:
+  
+  file_IP: Integromics_IPmarkers.xlsx
+  file_metabolome: Integromics_Metabolome.xlsx
+  file_general: Integromics_1.xlsx
+  file_microbiota : integromics_microbiota.xlsx
+  folder.data: ../../datos
+  subtitulo: FINAL RESULTS
+geometry: margin=2cm
+---
+```{r setup, include=FALSE}
+require(knitr)
+# include this code chunk as-is to set options
+opts_chunk$set(comment = NA, prompt = TRUE, tidy = T, 
+               fig.width = 7, fig.height = 7,echo = TRUE, 
+               message = FALSE, warning = TRUE, cache=TRUE, fig_caption = TRUE)
+Sys.setlocale("LC_TIME", "C")
+```
+
+## Load the libraries
+
+```{r libraries}
+
+list.of.packages <- c("xlsx","kableExtra","dplyr","ggplot2","egg","cowplot","patchwork","gridExtra","UsingR","car","lattice","ggpubr","ggbreak","GGally","reshape2","ggcorrplot","corrplot","rela","ggrepel","factoextra","chemometrics","sparsepca","vegan","ca","ade4","pls","OmicsPLS","psych")
+new.packages <- list.of.packages[!(list.of.packages %in% installed.packages()[,"Package"])] ## check for packages not installed 
+if(length(new.packages)) install.packages(new.packages) ## install packages if necessary
+res<-unlist(lapply(list.of.packages, require,character.only = T)) ## load packages needed for the session
+# if(any(res==F)){
+  list.of.packages[which(res==F)]  ## show those package if you have troubles to install.
+
+
+list.of.bioc.packages <- c("phyloseq","pcaMethods","ropls","mixOmics","limma","DESeq2")
+new.packages.bioc <- list.of.packages[!(list.of.bioc.packages %in% installed.packages()[,"Package"])]
+if(length(new.packages.bioc)) BiocManager::install(new.packages.bioc)
+res.bioc <- unlist(lapply(list.of.bioc.packages, require,character.only = T)) 
+if(any(res.bioc==F)){
+  list.of.packages[which(res.bioc==F)]  ## show those package if you have troubles to install.
+}
+```
+# Funciones
+```{r functions}
+
+
+proces_bacteria <- function(datos,tipo){
+
+  Order <- bacteria_phylum.abs$Order
+  variables_in_bacteria <- general_data[general_data$Orden %in% Order , ]
+  Sample<-variables_in_bacteria$Paciente
+
+
+  if(tipo=="genera"){
+
+    Order <- Order
+
+    X <- datos[-1,-1]
+    X<-apply(X,2,as.numeric)
+    colnames(X) <- datos[1,2:ncol(datos)]
+    rownames(X) <- Sample
+    X.rel <- 100*X/rowSums(X)
+
+
+  } else if(tipo=="phylum"){
+
+    X <- datos[,-c(1:2)]
+    colnames(X) <- colnames(datos)[3:ncol(datos)]
+    rownames(X) <- Sample
+    X.rel<-100*X/rowSums(X)
+  }
+
+  GROUP <-variables_in_bacteria$GROUP
+  SEX <- variables_in_bacteria$SEX
+  OBESE<- variables_in_bacteria$OBESE
+
+  X<-as.data.frame(X)
+  X.rel<-as.data.frame(X.rel)
+
+  X$GROUP<-GROUP
+  X$SEX<-SEX
+  X$OBESE<-OBESE
+
+
+  X.rel$GROUP<-GROUP
+  X.rel$SEX<-SEX
+  X.rel$OBESE<-OBESE
+
+  return(list(abs=X,rel=X.rel))
+
+}
+
+
+low.count.removal = function(
+                        data, # OTU count data frame of size n (sample) x p (OTU)
+                        percent=0.01 # cutoff chosen
+                        )bacteria_phylum.abs{
+    keep.otu = which(colSums(data)*100/(sum(colSums(data))) > percent)
+    data.filter = data[,keep.otu]
+    return(list(data.filter = data.filter, keep.otu = keep.otu))
+}
+
+low.count.removal.counts = function(
+                        data, # OTU count data frame of size n (sample) x p (OTU)
+                        abundance=10 # cutoff chosen
+                        ){
+    keep.otu <- which(colSums(data)>abundance)
+    data.filter <-data[,keep.otu]
+    return(list(data.filter = data.filter, keep.otu = keep.otu))
+}
+
+relative.fn <-function(data){
+  
+  return(100*data/rowSums(data))
+  
+}
+
+
+common.bacteria <- function(datos_i,datos.comunes){
+  
+
+  ## retorna los indices con las variables comunes
+
+  interaccion <- interaction(datos.comunes$GROUP,datos.comunes$OBESE)
+  datos.comunes$interaccion <- interaccion
+  grupo <-levels(interaccion)
+  w<-vector(mode="list",length=6)
+  names(w)<-levels(interaccion)
+  for(i in 1:6){
+   w[[names(w)[i]]]<-which(apply(as.matrix(datos_i[
+    rownames(datos_i)%in%
+      datos.comunes[datos.comunes$interaccion==grupo[i],"Paciente"],]),2,function(x) sum(x)==0))
+  }
+
+  w2<-vector(mode="list",length=6)
+  names(w2)<-levels(interaccion)
+  for(i in 1:6){
+   w2[[names(w2)[i]]]<-which(apply(as.matrix(datos_i[
+    rownames(datos_i)%in%
+      datos.comunes[datos.comunes$interaccion==grupo[i],"Paciente"],]),2,function(x) sum(x)>0))
+    }
+
+  w3<-lapply(w2, names)
+  common_variables <-Reduce(intersect,x = w3)
+
+  return(common_variables)
+}
+
+fn.densidad <- function(datos,fctr){
+  column_var=c("interaccion","variable","value")
+  columnas <- colnames(datos)
+  filas <- rownames(datos)
+  X<-data.frame(apply(datos, 2, as.numeric))
+  colnames(X)<-columnas
+  rownames(X)<-filas
+  X$fctr<-fctr
+  X.melt <- melt(X)
+  colnames(X.melt)<-column_var
+  p<-ggplot(data=X.melt,aes(x=value,color=interaccion))+geom_density()
+  
+  return(p)
+}
+
+fn.boxplot<-function(datos,fctr){
+  column_var=c("interaccion","variable","value")
+  columnas <- colnames(datos)
+  filas <- rownames(datos)
+  X<-data.frame(apply(datos, 2, as.numeric))
+  colnames(X)<-columnas
+  rownames(X)<-filas
+  X$fctr<-fctr
+  X.melt <- melt(X)
+  colnames(X.melt)<-column_var
+  
+  p<-ggplot(X.melt,aes(x=interaccion,y=value,fill=interaccion))+geom_boxplot()+theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1))
+  return(p)
+}
+
+
+graphPCA.methods <- function(datos,datos.common,varianzas){
+  
+  
+  sujetos <-as.data.frame(datos)
+  sexo<-datos.common$GROUP
+  obesidad<-datos.common$OBESE
+  colnames(sujetos)<-c("PC1","PC2")
+  p1<-ggplot(sujetos,aes(x=PC1, y=PC2)) +
+     geom_hline(yintercept = 0, color = "gray70") +
+     geom_vline(xintercept = 0, color = "gray70") +
+     geom_point(aes(color = sexo,shape=obesidad,fill=obesidad), alpha = 0.55, size = 3) +
+     coord_cartesian(xlim = c(min(sujetos[,1]),max(sujetos[,1]))) +
+     scale_color_manual(values=c("black","red","green"))+scale_shape_manual(values=c(17,15))+xlab(paste("PC1",round(varianzas[1],2),"%"))+ylab(paste("PC2",round(varianzas[2],2),"%"))
+  return(p1)
+}
+graphPCA.methods2 <- function(datos,datos.common,varianzas){
+  
+  
+  sujetos <-as.data.frame(datos)
+  sexo<-datos.common$GROUP
+  obesidad<-datos.common$OBESE
+  colnames(sujetos)<-c("PC1","PC2")
+  p1<-ggplot(sujetos,aes(x=PC1, y=PC2)) +
+     geom_hline(yintercept = 0, color = "gray70") +
+     geom_vline(xintercept = 0, color = "gray70") +
+     geom_point(aes(color = obesidad,shape=sexo,fill=obesidad), alpha = 0.55, size = 3) +
+     coord_cartesian(xlim = c(min(sujetos[,1]),max(sujetos[,1]))) +
+     scale_color_manual(values=c("black","red"))+scale_shape_manual(values=c(17,15,14))+xlab(paste("PC1",round(varianzas[1],2),"%"))+ylab(paste("PC2",round(varianzas[2],2),"%"))
+  return(p1)
+}
+plot.methods2 <- function(factores,datos.common){
+  
+  
+  sujetos <-data.frame(Factor1 = factores[,1], Factor2=factores[,2])
+  sexo<-datos.common$GROUP
+  obesidad<-datos.common$OBESE
+  p1<-ggplot(sujetos,aes(x=Factor1, y=Factor2)) +
+     geom_hline(yintercept = 0, color = "gray70") +
+     geom_vline(xintercept = 0, color = "gray70") +
+     geom_point(aes(color = sexo,shape=obesidad,fill=obesidad), alpha = 0.55, size = 3)  +
+     scale_color_manual(values=c("black","red","green"))+scale_shape_manual(values=c(17,15))
+  return(p1)
+}
+
+plot.methods <- function(factores,datos.common){
+  
+  
+  sujetos <-data.frame(Sujetos=1:length(factores),Factor=factores)
+  sexo<-datos.common$GROUP
+  obesidad<-datos.common$OBESE
+  p1<-ggplot(sujetos,aes(x=Sujetos, y=Factor)) +
+     geom_hline(yintercept = 0, color = "gray70") +
+     geom_vline(xintercept = 0, color = "gray70") +
+     geom_point(aes(color = sexo,shape=obesidad,fill=obesidad), alpha = 0.55, size = 3)  +
+     scale_color_manual(values=c("black","red","green"))+scale_shape_manual(values=c(17,15))
+  return(p1)
+}
+
+
+plot.methods2.ob <- function(factores,datos.common){
+  
+  
+  sujetos <-data.frame(Factor1 = factores[,1], Factor2=factores[,2])
+  sexo<-datos.common$GROUP
+  obesidad<-datos.common$OBESE
+  p1<-ggplot(sujetos,aes(x=Factor1, y=Factor2)) +
+     geom_hline(yintercept = 0, color = "gray70") +
+     geom_vline(xintercept = 0, color = "gray70") +
+     geom_point(aes(color = obesidad,shape=grupo,fill=grupo), alpha = 0.55, size = 3)  +
+     scale_color_manual(values=c("black","red"))+scale_shape_manual(values=c(17,15,13))
+  return(p1)
+}
+
+extract_top_weights <- function(modelo,view,factors,thresh=0.5){
+  
+  p1<-plot_top_weights(modelo,factors=factors,view=view,scale=T)
+top_weights <-as.character(unique(p1$data$feature[p1$data$value>=thresh]))
+return(top_weights)
+}
+fun_restore <- function(modelo,grupo){
+  factors <- get_factors(modelo, as.data.frame = T,scale = F,groups = grupo)
+
+weights <- rbind(get_weights(modelo,as.data.frame=T,scale=F,views="metaboloma"),
+                 get_weights(modelo,as.data.frame=T,scale=F,views="microbioma"))
+                 
+factores.recast <-as.data.frame(reshape2::recast(data=factors,sample~factor))
+rownames(factores.recast) <- factores.recast$sample
+factores.recast <- factores.recast[,-1]
+weights.recast <-as.data.frame(reshape2::recast(data=weights,feature~factor))
+rownames(weights.recast) <- weights.recast$feature
+weights.recast <- weights.recast[,-1]
+weights.recast$views <- c(rep("metabooloma",37),rep("microbioma",94))
+Y <-(as.matrix(factores.recast) %*% t(weights.recast[,-ncol(weights.recast)]))
+return(list(Y=Y,factores=factores.recast,pesos=weights.recast))
+}
+fn.explore <- function(datos.in){
+  datos <- as.data.frame(datos.in)
+grupo<-variables_in_bacteria$GROUP
+obesidad <- factor(gsub(" ",".",variables_in_bacteria$OBESE))
+interaccion<-factor(paste(obesidad,grupo,sep="_"))
+datos$grupo <- grupo
+datos$obesidad <- obesidad
+datos$interaccion <- interaccion
+datos$sexo <-variables_in_bacteria$SEX
+descarte <--c(dim(datos.in)[2]:(dim(datos.in)[2]+4))
+#### gruposde interes
+femalesOnly <- datos[datos$sexo=="Female",descarte]
+malesOnly <- datos[datos$sexo=="Male",descarte]
+females <- datos[datos$grupo=="Female",descarte]
+males <- datos[datos$grupo=="Male",descarte]
+pcos <- datos[datos$grupo=="PCOS",descarte]
+obesos <- datos[datos$obesidad=="Obese",descarte]
+No.Obesos <- datos[datos$obesidad=="No.Obese",descarte]
+#### interacciones
+females.no.obese <- datos[datos$interaccion=="No.Obese_Female",descarte]
+females.obese <- datos[datos$interaccion=="Obese_Female",descarte]
+males.no.obese <-  datos[datos$interaccion=="No.Obese_Male",descarte]
+males.obese <-  datos[datos$interaccion=="Obese_Male",descarte]
+pcos.no.obese <- datos[datos$interaccion=="No.Obese_PCOS",descarte]
+pcos.obese <- datos[datos$interaccion=="Obese_PCOS",descarte]
+out <- list(femalesOnly=femalesOnly,
+            malesOnly=malesOnly,
+            females=females,
+            males=males,
+            pcos=pcos,
+            obesos=obesos,
+            No.Obesos=No.Obesos,
+            females.no.obese=females.no.obese,
+            males.no.obese=males.no.obese,
+            pcos.no.obese=pcos.no.obese,
+            females.obese=females.obese,
+            pcos.obese=pcos.obese,
+           males.obese=males.obese,
+           Y=datos[,descarte])
+return(out)
+}
+
+
+fn.cor.res2 <- function(m1,m2,top_pesos.names,name1,name2){
+## correlacion m1
+m1.cor <-  cor(m1[,top_pesos.names],method = "spearman")
+## cor test m1
+m1.cor.p <-corr.test(m1.cor,method = "spearman")$p
+# m1.cor.p[colnames(m1.cor.p) %in% colnames(metaboloma),colnames(m1.cor.p) %in% colnames(metaboloma)]<-1
+# m1.cor.p[colnames(m1.cor.p) %in% colnames(genus.abs),colnames(m1.cor.p) %in% colnames(genus.abs)]<-1
+m1.cor.p[lower.tri(m1.cor.p)]<-1
+diag(m1.cor.p)<-1
+
+m2.cor <-  cor(m2[,top_pesos.names],method = "spearman")
+m2.cor.p <-corr.test(m2.cor,method = "spearman")$p
+# m2.cor.p[colnames(m2.cor.p) %in% colnames(metaboloma),colnames(m2.cor.p) %in% colnames(metaboloma)]<-1
+# m2.cor.p[colnames(m2.cor.p) %in% colnames(genus.abs),colnames(m2.cor.p) %in% colnames(genus.abs)]<-1
+m2.cor.p[lower.tri(m2.cor.p)]<-1
+diag(m2.cor.p)<-1
+
+
+
+corrplot::corrplot(m1.cor,p.mat = m1.cor.p,sig.level = 0.05,insig = "label_sig",title = name1,mar = c(0,0,1,0))
+corrplot::corrplot(m2.cor,p.mat = m2.cor.p,sig.level = 0.05,insig = "label_sig",title = name2,mar = c(0,0,1,0))
+females.only.cor <- cor(m1[,top_pesos.names])
+males.only.cor <- cor(m2[,top_pesos.names])
+pls.obj<-pls(t(m1[,top_pesos.names]),t(m2[,top_pesos.names]),ncomp = 1)
+cortest <-cor.test(pls.obj$variates$X,pls.obj$variates$Y,method = "spearman")$p.value
+corval<-cor(pls.obj$variates$X,pls.obj$variates$Y,method = "spearman")
+
+manteltest <-mantel.test(females.only.cor,males.only.cor,nperm = 10000)$p
+wilcoxtest <- wilcox.test(pls.obj$X,pls.obj$Y)$p.value
+
+print(paste0(sum(m1.cor.p<0.05),"m1"))
+print(paste0(sum(m2.cor.p<0.05),"m1"))
+
+return(c(cortest=cortest,manteltest=manteltest,wilcoxtest=wilcoxtest,corval = corval))
+}
+
+fn.cor.res1 <- function(m1,top_pesos.names,name1){
+## correlacion m1
+m1.cor <-  cor(m1[,top_pesos.names],method = "spearman")
+## cor test m1
+m1.cor.p <-corr.test(m1.cor,method = "spearman")$p
+# m1.cor.p[colnames(m1.cor.p) %in% colnames(metaboloma),colnames(m1.cor.p) %in% colnames(metaboloma)]<-1
+# m1.cor.p[colnames(m1.cor.p) %in% colnames(genus.abs),colnames(m1.cor.p) %in% colnames(genus.abs)]<-1
+m1.cor.p[lower.tri(m1.cor.p)]<-1
+diag(m1.cor.p)<-1
+
+corrplot::corrplot(m1.cor,p.mat = m1.cor.p,sig.level = 0.05,insig = "label_sig",title = name1,mar = c(0,0,1,0))
+
+}
+fn.explore2 <- function(datos.in,variables_integracion){
+  datos <- as.data.frame(datos.in)
+interaccion<-factor(paste(variables_integracion$obesidad,variables_integracion$grupo,sep="_"))
+datos$grupo <- variables_integracion$grupo
+datos$obesidad <- variables_integracion$obesidad
+datos$interaccion <- interaccion
+datos$sexo <-variables_in_bacteria$SEX
+descarte <--c(dim(datos.in)[2]:(dim(datos.in)[2]+4))
+#### gruposde interes
+femalesOnly <- datos[datos$sexo=="Female",descarte]
+malesOnly <- datos[datos$sexo=="Male",descarte]
+females <- datos[datos$grupo=="Female",descarte]
+males <- datos[datos$grupo=="Male",descarte]
+pcos <- datos[datos$grupo=="PCOS",descarte]
+obesos <- datos[datos$obesidad=="Obese",descarte]
+No.Obesos <- datos[datos$obesidad=="No.Obese",descarte]
+#### interacciones
+females.no.obese <- datos[datos$interaccion=="No.Obese_Female",descarte]
+females.obese <- datos[datos$interaccion=="Obese_Female",descarte]
+males.no.obese <-  datos[datos$interaccion=="No.Obese_Male",descarte]
+males.obese <-  datos[datos$interaccion=="Obese_Male",descarte]
+pcos.no.obese <- datos[datos$interaccion=="No.Obese_PCOS",descarte]
+pcos.obese <- datos[datos$interaccion=="Obese_PCOS",descarte]
+out <- list(femalesOnly=femalesOnly,
+            malesOnly=malesOnly,
+            females=females,
+            males=males,
+            pcos=pcos,
+            obesos=obesos,
+            No.Obesos=No.Obesos,
+            females.no.obese=females.no.obese,
+            males.no.obese=males.no.obese,
+            pcos.no.obese=pcos.no.obese,
+            females.obese=females.obese,
+            pcos.obese=pcos.obese,
+           males.obese=males.obese,
+           Y=datos[,descarte])
+return(out)
+}
+fun_restore <- function(modelo,grupo){
+  factors <- get_factors(modelo, as.data.frame = T,scale = F,groups = grupo)
+
+weights <- rbind(get_weights(modelo,as.data.frame=T,scale=F,views="metaboloma"),
+                 get_weights(modelo,as.data.frame=T,scale=F,views="microbioma"))
+                 
+factores.recast <-as.data.frame(reshape2::recast(data=factors,sample~factor))
+rownames(factores.recast) <- factores.recast$sample
+factores.recast <- factores.recast[,-1]
+weights.recast <-as.data.frame(reshape2::recast(data=weights,feature~factor))
+rownames(weights.recast) <- weights.recast$feature
+weights.recast <- weights.recast[,-1]
+weights.recast$views <- c(rep("metabooloma",37),rep("microbioma",94))
+Y <-(as.matrix(factores.recast) %*% t(weights.recast[,-ncol(weights.recast)]))
+return(list(Y=Y,factores=factores.recast,pesos=weights.recast))
+}
+
+```
+
+
+# Cargamos los datos
+
+## Datos clinicos
+
+```{r}
+general_data <- read.xlsx(file.path(params$folder.data,params$file_general),sheetIndex =1)
+general_data$SEX <- factor(general_data$SEX, levels = c(0, 2), labels = c("Female", "Male"))
+general_data$OBESE <- factor(general_data$OBESE, levels = c(0, 1), labels = c("No Obese", "Obese"))
+general_data$GROUP <- factor(general_data$GROUP, levels = c(0, 1, 2), labels = c("Female",  "PCOS", "Male"))
+
+
+```
+
+
+## Datos IP
+
+```{r}
+
+IP_file<-file.path(params$folder.data,file=params$file_IP) ## file path of the data
+IP.tmp<-read.xlsx(IP_file,sheetIndex = 1)
+IP<-IP.tmp[,-7] # remove the missin values column
+IP$SEX <- factor(IP$SEX,levels=c(0,2),labels = c("Female","Male"))
+IP$OBESE <- factor(IP$OBESE,levels=c(0,1),labels = c("No Obese","Obese"))
+IP$GROUP <- factor(IP$GROUP,levels=c(0,1,2),labels = c("Female","PCOS","Male"))
+
+```
+
+## Datos Metaboloma
+
+```{r}
+metabolome_file<-file.path(params$folder.data,file=params$file_metabolome) ## file path of the data
+metabolome.tmp<-read.xlsx(metabolome_file,sheetIndex = 1) # read the data
+metabolites_name <- read.xlsx(metabolome_file,sheetIndex = 2)$Metabolitos # read the names of the metabolites
+any(is.na(metabolome.tmp)) # there is a row of missing values.
+metabolome<-metabolome.tmp[-nrow(metabolome.tmp),] ## remove the missing value row
+metabolome$GROUP<-general_data$GROUP ## add GROUP variable 
+metabolome$OBESE <- general_data$OBESE ## add OBESE variables.
+
+```
+
+
+## Datos microbioma
+
+```{r}
+bacteria_phylum.abs <- as.data.frame(read.xlsx(file.path(params$folder.data,params$file_microbiota), sheetIndex = 1))
+bacteria_genera.abs <- as.data.frame(t(read.xlsx(file.path(params$folder.data,params$file_microbiota), sheetIndex = 3)))
+phylum.list <- proces_bacteria(bacteria_phylum.abs,tipo="phylum")
+genera.list <- proces_bacteria(bacteria_genera.abs,tipo="genera")
+
+phylum.abs <- phylum.list$abs;phylum.rel<-phylum.list$rel
+genera.abs <- genera.list$abs;genera.rel<-genera.list$rel
+
+```
+
+# Preparando los datos para la integracion
+```{r}
+variables_in_bacteria <- general_data[general_data$Orden %in% bacteria_phylum.abs$Order, ]
+
+```
+
+## Datos Clinicos
+**NOTE we are going to include also on both levels of integration body measures**
+We exclude ISI because it is measured after the load of glucose, the mean values, to exclude redundancy of the data, ant the postprandial levels. 
+
+
+```{r}
+sujetos <- variables_in_bacteria$Paciente
+Clin.tmp <- variables_in_bacteria[,-c(1,2,3,4,5)] # get rid off orden, paciente, sex, group and obese
+auc_clin <- colnames(Clin.tmp)[grep("AUC",colnames(Clin.tmp))]
+mean_basal_clin<-colnames(Clin.tmp)[grep("_B$",colnames(Clin.tmp))]
+sog <- colnames(Clin.tmp)[grep("^SO[GLP]",colnames(Clin.tmp))]
+variables_clin <- colnames(Clin.tmp)
+testosterona <-colnames(Clin.tmp)[grep("TEST",colnames(Clin.tmp))]
+interr<-colnames(Clin.tmp)[grep("interaccion",colnames(Clin.tmp))]
+ratio <- colnames(Clin.tmp)[grep("Ratio",colnames(Clin.tmp))]
+w<-c(which(variables_clin %in% auc_clin),which(variables_clin %in% mean_basal_clin),which(variables_clin %in% sog),which(variables_clin %in% testosterona),
+which(variables_clin %in% interr),which(variables_clin %in% ratio))
+Clin <- Clin.tmp[,-w] 
+rownames(Clin) <- sujetos
+colnames(Clin)
+```
+
+
+## Datos IP
+```{r}
+IP.tmp <- IP[IP$Paciente %in% variables_in_bacteria$Paciente,]
+redundant_variables <- c("Orden","Paciente","SEX","GROUP","OBESE","BMI")
+variables_ip <- colnames(IP.tmp)
+auc_ip <- variables_ip[grep("AUC",variables_ip)]
+mean_ip <- variables_ip[grep("_0$",variables_ip)]
+w <- c(which(variables_ip %in% redundant_variables),which(variables_ip %in% auc_ip),which(variables_ip %in% mean_ip))
+IP.basal <- IP.tmp[,-w]
+rownames(IP.basal) <- sujetos
+
+```
+
+## Metabolome data (37)
+
+```{r}
+metabolome.basal.tmp <- metabolome[metabolome$Order %in% variables_in_bacteria$Orden,]
+redundant_data_meta <- c("Order","Sample","GROUP","OBESE")
+variables_meta <- colnames(metabolome.basal.tmp)
+mean_meta <- variables_meta[grep("_[GLP]0$",variables_meta)]
+auc_meta <- variables_meta[grep("AU[CG]",variables_meta)]
+w <- c(which(variables_meta %in% redundant_data_meta),which(variables_meta %in% mean_meta),which(variables_meta %in% auc_meta))
+metabolome.basal_mean <- metabolome.basal.tmp[,-w]
+rownames(metabolome.basal_mean) <- sujetos
+colnames(metabolome.basal_mean)
+```
+## Datos microbioma
+
+### Datos genero
+
+```{r}
+
+genera.abs.tmp <- genera.abs
+redundant_data_ph <- c("GROUP","SEX","OBESE")
+genus.tmp.tmp <- genera.abs.tmp[,-c(ncol(genera.abs.tmp)-2,ncol(genera.abs.tmp)-1,ncol(genera.abs.tmp))]
+genus <- genus.tmp.tmp[,colSums(genus.tmp.tmp)>0]
+rownames(genus) <- sujetos
+## removal of genus unidentified
+
+genus<-genus[,-grep("^ud-",colnames(genus))]
+
+common_genus <-common.bacteria(genus,variables_in_bacteria)
+
+genus<-genus[,common_genus]
+genus.abs <- low.count.removal.counts(genus,10)$data.filter
+
+```
+
+# Datos que necesitamos
+
+```{r}
+
+pacientes <- variables_in_bacteria$Paciente
+grupo<-variables_in_bacteria$GROUP
+obesidad <- factor(gsub(" ",".",variables_in_bacteria$OBESE))
+interaccion<-factor(paste(obesidad,grupo,sep="_"))
+datos.common <- variables_in_bacteria[,c("GROUP","OBESE","Paciente")]
+columnData <- data.frame(interaccion=interaccion)
+rownames(columnData) <- pacientes
+
+```
+
+# Descriptiva
+
+## Metaboloma
+
+```{r}
+met37<-t(metabolome.basal_mean)
+met37_norm <- met37/rowSums(met37)
+met37_log <- t(apply(met37_norm,1,log))
+design <- model.matrix(~obesidad*grupo)
+X<-(voom(met37_norm,normalize.method = "quantile",design = design)$E)
+p1<-fn.densidad((t(X)),interaccion)
+p2<-fn.boxplot(t(X),interaccion)
+pcx <- prcomp(t(X),scale=F,center=T)
+varianzas <- 100*(pcx$sdev^2/sum(pcx$sdev^2))
+p3<-graphPCA.methods(pcx$x,datos.common,varianzas)+ggtitle("PCA")
+
+U3 <- pcx$x
+apply(U3, 2, function(x) which( abs(x - mean(x)) > (6 * sd(x)) ))
+
+
+
+pcx.cor <- princomp(x=cor((X),method = "spearman"),cor=T)
+varianzas <- 100*(pcx.cor$sdev^2/sum(pcx.cor$sdev^2))
+p4<-graphPCA.methods(pcx.cor$scores[,1:2],datos.common,varianzas)+ggtitle("PCA spearman")
+
+plsda.met <- mixOmics::plsda(t(X),obesidad,scale = T,ncomp = 5)
+p5<-graphPCA.methods2(plsda.met$variates$X,datos.common,varianzas)+ggtitle("PLS-DA")
+
+p7 <-graphPCA.methods2(pcx$x,datos.common,varianzas)+ggtitle("PCA")
+
+euc <- vegdist(t(X),method = "euclidean")
+points<-cmdscale(euc)
+p6<-graphPCA.methods(points,datos.common,varianzas)+ggtitle("MDS")
+ggarrange(p1,p2,p3,p7,
+          common.legend = T)
+ggarrange(p3,p4,p5,p6,ncol=2,nrow=2,common.legend = T)
+ggarrange(p3,p7)
+(res<-adonis2(euc~obesidad*grupo))
+
+```
+
+```{r}
+fviz_pca_var(pcx)
+
+```
+
+
+```{r}
+X<-(voom(met37_norm,normalize.method = "quantile",design = design)$E)
+```
+
+
+
+```{r}
+metaboloma.process <- as.data.frame(t(X))
+
+```
+
+
+```{r}
+metaboloma.process$interaccion<-interaccion
+```
+
+```{r}
+levels(interaccion)
+```
+
+```{r}
+mywilcox <- function(x){
+  
+  gi <- levels(grupo_interes$interaccion)
+  median1 <- median(x[grupo_interes$interaccion==gi[1]])
+  median2 <- median(x[grupo_interes$interaccion==gi[2]])
+  pvalue <- wilcox.test(x~grupo_interes$interaccion,exact=F)$p.value
+
+  return(pvalue=pvalue)
+}
+combinaciones <-t(combn(levels(metaboloma.process$interaccion),2))
+matriz <- matrix(NA,nrow=ncol(metaboloma.process)-1,ncol=(nrow(combinaciones)))
+for(comb in 1:dim(combinaciones)[1]){
+  grupo_interes <- metaboloma.process[metaboloma.process$interaccion==combinaciones[comb,1] | metaboloma.process$interaccion==combinaciones[comb,2],]
+grupo_interes$interaccion <- droplevels(grupo_interes$interaccion)
+
+matriz[,comb] <-apply(grupo_interes[,-ncol(grupo_interes)], 2,function(x) mywilcox(x))
+  
+  
+}
+
+colnames(matriz)<-  apply(combinaciones, 1,function(X) paste(X[1],"vs",X[2]))
+rownames(matriz) <- colnames(metaboloma.process)[-length(metaboloma.process)]
+matriz.adj <- t(apply(matriz, 1, function(x) p.adjust(x,method = "BH")))
+# write.csv(matriz.adj,"./comparaciones_BH_metaboloma.csv")
+```
+
+
+```{r}
+metaboloma.process$interaccion<-obesidad
+
+mywilcox <- function(x){
+  
+  gi <- levels(grupo_interes$interaccion)
+  median1 <- median(x[grupo_interes$interaccion==gi[1]])
+  median2 <- median(x[grupo_interes$interaccion==gi[2]])
+  pvalue <- wilcox.test(x~grupo_interes$interaccion,exact=F)$p.value
+
+  return(pvalue=pvalue)
+}
+combinaciones <-t(combn(levels(metaboloma.process$interaccion),2))
+matriz <- matrix(NA,nrow=ncol(metaboloma.process)-1,ncol=(nrow(combinaciones)))
+for(comb in 1:dim(combinaciones)[1]){
+  grupo_interes <- metaboloma.process[metaboloma.process$interaccion==combinaciones[comb,1] | metaboloma.process$interaccion==combinaciones[comb,2],]
+grupo_interes$interaccion <- droplevels(grupo_interes$interaccion)
+
+matriz[,comb] <-apply(grupo_interes[,-ncol(grupo_interes)], 2,function(x) mywilcox(x))
+  
+  
+}
+
+colnames(matriz)<-  apply(combinaciones, 1,function(X) paste(X[1],"vs",X[2]))
+rownames(matriz) <- colnames(metaboloma.process)[-length(metaboloma.process)]
+matriz.adj <- t(apply(matriz, 1, function(x) p.adjust(x,method = "BH")))
+# write.csv(matriz.adj,"./comparaciones_BH_metaboloma.csv")
+```
+
+```{r}
+metaboloma.process$interaccion<-interaccion
+
+mywilcox <- function(x){
+  
+  gi <- levels(grupo_interes$interaccion)
+  median1 <- median(x[grupo_interes$interaccion==gi[1]])
+  median2 <- median(x[grupo_interes$interaccion==gi[2]])
+  pvalue <- wilcox.test(x~grupo_interes$interaccion,exact=F)$p.value
+
+  return(pvalue=pvalue)
+}
+combinaciones <-t(combn(levels(metaboloma.process$interaccion),2))
+matriz <- matrix(NA,nrow=ncol(metaboloma.process)-1,ncol=(nrow(combinaciones)))
+for(comb in 1:dim(combinaciones)[1]){
+  grupo_interes <- metaboloma.process[metaboloma.process$interaccion==combinaciones[comb,1] | metaboloma.process$interaccion==combinaciones[comb,2],]
+grupo_interes$interaccion <- droplevels(grupo_interes$interaccion)
+
+matriz[,comb] <-apply(grupo_interes[,-ncol(grupo_interes)], 2,function(x) mywilcox(x))
+  
+  
+}
+
+colnames(matriz)<-  apply(combinaciones, 1,function(X) paste(X[1],"vs",X[2]))
+rownames(matriz) <- colnames(metaboloma.process)[-length(metaboloma.process)]
+matriz.adj <- (apply(matriz, 1, function(x) p.adjust(x,method = "BH")))
+write.csv(matriz.adj,"./comparaciones_BH_metaboloma.csv")
+```
+
+
+```{r}
+interes <- (matriz.adj)
+
+resultado <- interes*NA
+for(f in 1:nrow(matriz.adj)){
+  
+  cuestion <- interes[f,]
+  for(col in 1:ncol(matriz.adj)){
+    if(cuestion[col]<0.05 & all(cuestion[-col]>0.05)){
+      resultado[f,col]<- "UNICO"
+    }else{
+      next
+    }
+  }
+  
+}
+```
+
+
+
+```{r}
+interes <- t(interes)
+interes2 <- interes[,c("No.Obese_Female vs No.Obese_PCOS",
+                       "No.Obese_Female vs Obese_Female",
+                       "No.Obese_Female vs Obese_PCOS",
+                       "No.Obese_PCOS vs Obese_Female",
+                       "No.Obese_PCOS vs Obese_PCOS",
+                       "Obese_Female vs Obese_PCOS")]
+resultado <- interes2*NA
+for(f in 1:nrow(matriz.adj)){
+  
+  cuestion <- interes2[f,]
+  for(col in 1:ncol(interes2)){
+    if(cuestion[col]<0.05 & all(cuestion[-col]>0.05)){
+      resultado[f,col]<- "UNICO"
+    }else{
+      next
+    }
+  }
+  
+}
+
+```
+
+
+```{r}
+interes2 <- interes[,c("No.Obese_Male vs Obese_Male")]
+which(interes2<0.05)
+```
+
+
+
+
+
+```{r}
+plotLoadings(plsda.met, contrib = 'max', method = 'median',comp = 1,size.name = 0.7,ndisplay = 10)
+plotLoadings(plsda.met, contrib = 'max', method = 'median',comp = 2,size.name = 0.7,ndisplay = 10)
+
+
+```
+
+
+```{r}
+metaboloma <- as.data.frame(t(X))
+```
+
+
+```{r}
+metaboloma.extra <- metaboloma
+metaboloma.extra$grupo <- grupo
+metaboloma.extra$obesidad <- obesidad
+metaboloma.extra$interaccion <- interaccion
+```
+
+```{r}
+p1 <-  ggboxplot(metaboloma.extra,x="obesidad",y="Valine_mean",color = "grupo")+ylab("Valine")+xlab("")
+p2 <-  ggboxplot(metaboloma.extra,x="obesidad",y="Oxoisocaproic_mean",color = "grupo")+ylab("Acido Oxoisocaproico")+xlab("")
+p3 <-  ggboxplot(metaboloma.extra,x="obesidad",y="Leu_mean",color = "grupo")+ylab("Leucina")+xlab("")
+p4 <-  ggboxplot(metaboloma.extra,x="obesidad",y="Glycerol_mean",color = "grupo")+ylab("Glycerol")+xlab("")
+ggarrange(p1,p2,p3,p4,common.legend = T)
+```
+
+```{r}
+wil <-pairwise.wilcox.test(metaboloma.extra$Glycerol_mean,interaccion)
+
+wil$p.value
+```
+
+
+
+```{r}
+datos <- as.data.frame(metaboloma)
+grupo<-variables_in_bacteria$GROUP
+obesidad <- factor(gsub(" ",".",variables_in_bacteria$OBESE))
+interaccion<-factor(paste(obesidad,grupo,sep="_"))
+datos$grupo <- grupo
+datos$obesidad <- obesidad
+datos$interaccion <- interaccion
+descarte <- c(40,39,38)
+#### gruposde interes
+females <- datos[datos$grupo=="Female",-descarte]
+males <- datos[datos$grupo=="Male",-descarte]
+pcos <- datos[datos$grupo=="PCOS",-descarte]
+obesos <- datos[datos$obesidad=="Obese",-descarte]
+No.Obesos <- datos[datos$obesidad=="No.Obese",-descarte]
+#### interacciones
+females.no.obese <- datos[datos$interaccion=="No.Obese_Female",-descarte]
+females.obese <- datos[datos$interaccion=="Obese_Female",-descarte]
+males.no.obese <-  datos[datos$interaccion=="No.Obese_Male",-descarte]
+males.obese <-  datos[datos$interaccion=="Obese_Male",-descarte]
+pcos.no.obese <- datos[datos$interaccion=="No.Obese_PCOS",-descarte]
+pcos.obese <- datos[datos$interaccion=="Obese_PCOS",-descarte]
+```
+
+
+
+```{r}
+corrplot::corrplot(corr=cor(females,method = "spearman"),)
+```
+
+
+```{r}
+library(ape)
+fn.cor.res2(obesos,No.Obesos,top_pesos.names = colnames(females),name1 = "pcos no obese","pcos obesos")
+```
+
+
+```{r}
+library(ape)
+descarte <- c(40,39,38)
+mantel.test(cor(obesos[,-descarte]),cor(No.Obesos[,-descarte]),graph=F)
+```
+
+
+```{r}
+g1 <-mantel.test(cor(females[,-descarte]),cor(males[,-descarte]),graph=F)$p
+g2 <- mantel.test(cor(females[,-descarte]),cor(pcos[,-descarte]),graph=F)$p
+g3 <- mantel.test(cor(pcos[,-descarte]),cor(males[,-descarte]),graph=F)$p
+p.adjust(c(g1,g2,g3),method = "bonferroni")
+```
+
+
+```{r}
+lista.aux <- list(
+  females.no.obese=females.no.obese[,-descarte],
+  females.obese=females.obese[,-descarte],
+  pcos.no.obese=pcos.no.obese[,-descarte],
+  pcos.obese=pcos.obese[,-descarte],
+  males.no.obese=males.no.obese[,-descarte],
+  males.obese=males.obese[,-descarte]
+)
+
+mantelas <- vector("numeric",length=15)
+combi <- t(combn(names(lista.aux),2))
+for(i in 1:dim(combi)[1]){
+  mantelas[i] <- mantel.test(cor(lista.aux[[combi[i,1]]]),cor(lista.aux[[combi[i,2]]]))$p
+}
+
+names(mantelas)<-apply(combi, 1, function(x) paste(x,collapse = "_vs_"))
+mantelas.adj <-p.adjust(mantelas,method = "bonferroni")
+names(mantelas.adj[mantelas.adj<0.05])
+```
+
+```{r}
+
+```
+
+
+
+```{r}
+g1 <-mantel.test(cor(females.no.obese[,-descarte]),cor(females.obese[,-descarte]),graph=F)$p
+g2 <- mantel.test(cor(females.no.obese[,-descarte]),cor(pcos.no.obese[,-descarte]),graph=F)$p
+g3 <- mantel.test(cor(females.no.obese[,-descarte]),cor(females.obese[,-descarte]),graph=F)$p
+
+g4 <-mantel.test(cor(females.no.obese[,-descarte]),cor(males.obese[,-descarte]),graph=F)$p
+g5 <- mantel.test(cor(females.no.obese[,-descarte]),cor(pcos.obese[,-descarte]),graph=F)$p
+g6 <- mantel.test(cor(males.no.obese[,-descarte]),cor(pcos.no.obese[,-descarte]),graph=F)$p
+
+g7 <-mantel.test(cor(males.no.obese[,-descarte]),cor(females.no.obese[,-descarte]),graph=F)$p
+g8 <- mantel.test(cor(males.no.obese[,-descarte]),cor(males.obese[,-descarte]),graph=F)$p
+g9 <- mantel.test(cor(males.no.obese[,-descarte]),cor(pcos.obese[,-descarte]),graph=F)$p
+
+
+g10 <-mantel.test(cor(pcos.no.obese[,-descarte]),cor(females.obese[,-descarte]),graph=F)$p
+g11 <- mantel.test(cor(pcos.no.obese[,-descarte]),cor(pcos.obese[,-descarte]),graph=F)$p
+g12 <- mantel.test(cor(pcos.no.obese[,-descarte]),cor(males.obese[,-descarte]),graph=F)$p
+
+g13 <-mantel.test(cor(females.obese[,-descarte]),cor(males.obese[,-descarte]),graph=F)$p
+g14 <- mantel.test(cor(females.obese[,-descarte]),cor(pcos.obese[,-descarte]),graph=F)$p
+g15 <- mantel.test(cor(males.obese[,-descarte]),cor(pcos.obese[,-descarte]),graph=F)$p
+```
+
+```{r}
+which(p.adjust(c(g1,g2,g3,g4,g5,g6,g7,g8,g9,g10,g11,g12,g13,g14,g15),method = "bonferroni")>0.05)
+```
+
+```{r}
+variates <- plsda.met$variates$X
+matriz <- matrix(NA,ncol=37,nrow = 5)
+matriz.p <-matrix(NA,ncol=37,nrow = 5)
+for(i in 1:5){
+  for(j in 1:37){
+    
+    matriz[i,j]<- cor(variates[,i],metaboloma[,j],method = "spearman")
+    matriz.p[i,j]<-cor.test(variates[,i],metaboloma[,j],method = "spearman")$p.value
+  }
+    
+}
+colnames(matriz) <- colnames(metaboloma)
+colnames(matriz.p)<- colnames(metaboloma)
+corrplot::corrplot(matriz,is.corr = F)
+
+```
+
+
+
+```{r}
+csa1 <- colnames(metaboloma)[which(p.adjust(matriz.p[1,],method = "bonferroni")<0.05)]
+csa2 <- colnames(metaboloma)[which(p.adjust(matriz.p[1,],method = "bonferroni")<0.05)]
+metabolitos <-unique(c(csa1,csa2))
+metabolitos
+```
+
+```{r}
+library(lmPerm)
+p<-vector(mode="numeric",length=length(metabolitos))
+for(i in 1:length(metabolitos)){
+  metabolito <- metabolitos[i]
+  s <- summary(aovp(metaboloma[,metabolito]~grupo*obesidad))[[1]]
+  p[i]<- s$`Pr(Prob)`[3]
+  
+}
+names(p) <- metabolitos
+p
+```
+```{r}
+p[p.adjust(p,method="BH")<0.05]
+
+```
+```{r}
+pairwise.wilcox.test(metaboloma$Lysine_mean,interaccion,p.adjust.method = "BH")
+
+```
+```{r}
+pairwise.wilcox.test(metaboloma$Formate_mean,interaccion,p.adjust.method = "BH")
+```
+
+```{r}
+pairwise.wilcox.test(metaboloma$Alanine_mean,interaccion,p.adjust.method = "BH")
+
+```
+## Metagenoma
+
+
+
+```{r}
+
+
+genus.imput <-cmultRepl(X = genus.abs,label = 0,output = "p-counts")
+
+```
+```{r}
+library(mixOmics)
+library(reshape2)
+library(vegan)
+G <-matrix(t(logratio.transfo(t(genus.imput),logratio = "CLR")),ncol=ncol(genus.abs),nrow(genus.abs))
+
+# datos <- t(rlog(counts(dds.interaccion.nb.2)))
+datos = as.data.frame((G))
+p1<-fn.densidad(datos = datos,fctr = interaccion)
+p2 <- fn.boxplot(datos = datos,fctr = interaccion)
+pca.log <- prcomp((datos),center = T,scale. = F)
+pca.var <- 100*(pca.log$sdev^2/sum(pca.log$sdev^2))
+p3<-graphPCA.methods(pca.log$x[,1:2],
+                     datos.common = datos.common,
+                     varianzas=pca.var)+ggtitle("PCA")
+
+mds <- cmdscale(vegdist(genus.imput,method = "aitchison"),eig = T,add = F,k=10)
+varianzas <- 100*mds$eig/sum(mds$eig)
+pca.spearman <- princomp(mds$points,fix_sign = F,cor=T)
+
+pca.spearman.scores <- pca.spearman$scores
+pca.spearman.var <- 100*(pca.spearman$sdev^2/sum(pca.spearman$sdev^2))
+p4<-graphPCA.methods(pca.spearman.scores[,1:2],
+                 datos.common = datos.common,
+                 varianzas = pca.spearman.var)+ggtitle("PCA spearman")
+
+
+
+mds <- cmdscale(vegdist(genus.imput,method = "aitchison"),eig = T,add = F,k=10)
+varianzas <- 100*mds$eig/sum(mds$eig)
+p5<-graphPCA.methods(datos=mds$points,
+                     datos.common = datos.common,
+                     varianzas = varianzas)+ggtitle("PCoA")
+
+
+p5<-graphPCA.methods(datos=mds$points,
+                     datos.common = datos.common,
+                     varianzas = varianzas)+ggtitle("PCoA")
+
+
+
+p11<-ggarrange(p1,p2,p3,p4,common.legend = T)
+annotate_figure(p11,bottom = "media ajusta y rlog")
+
+
+```
+
+
+```{r}
+library(ALDEx2)
+set.seed(123)
+conds <- grupo
+x.all <- aldex.clr(t(genus.abs),conds)
+mc.instances <- numMCInstances(x.all)
+mc.all <- getMonteCarloInstances(x.all)
+feature.number <- numFeatures(x.all)
+
+p.grupo <- vector("numeric",length=mc.instances)
+p.obesidad <- vector("numeric",length=mc.instances)
+p.interaccion <- vector("numeric",length=mc.instances)
+
+p.grupoBH <- vector("numeric",length=mc.instances)
+p.obesidadBH <- vector("numeric",length=mc.instances)
+p.interaccionBH <- vector("numeric",length=mc.instances)
+  for (mc.i in 1:mc.instances) {
+    t.input <- t(sapply(mc.all, function(y) {
+      y[, mc.i]
+    }))
+    
+    permanova <- adonis2(t.input~obesidad*grupo,method = "euclidean")
+    p.obesidad[mc.i] <- permanova$`Pr(>F)`[1]
+    p.grupo[mc.i]  <- permanova$`Pr(>F)`[2]
+    p.interaccion[mc.i]  <- permanova$`Pr(>F)`[3]
+    # wi.p.matrix[, mc.i] <- wilcox.fast(t.input, setAsBinary, 
+    #   paired.test)
+  }
+
+acc.obesidad <- vector("numeric",length=mc.instances)
+
+  for (mc.i in 1:mc.instances) {
+    t.input <- t(sapply(mc.all, function(y) {
+      y[, mc.i]
+    }))
+    
+    plsda.obesidad <- mixOmics::plsda(t.input,grupo,ncomp = 2)
+    prediction <- predict(plsda.obesidad,(t.input))
+    prediction <- as.factor(prediction$MajorityVote$max.dist[,1])
+    acc.obesidad[mc.i] <- caret::confusionMatrix(prediction,grupo)$overall[1]
+    
+    # wi.p.matrix[, mc.i] <- wilcox.fast(t.input, setAsBinary, 
+    #   paired.test)
+  }
+which.max(acc.obesidad)
+
+t.input <- t(sapply(mc.all, function(y) {
+      y[, which.max(acc.obesidad)]
+    }))
+plsda.obesidad <- mixOmics::plsda(t.input,grupo)
+p5<-graphPCA.methods(plsda.obesidad$variates$X,datos.common,varianzas=100*c(plsda.obesidad$prop_expl_var$X))+ggtitle("PLS-DA")
+p5
+```
+```{r}
+plsda.obesidad$prop_expl_var$Y
+```
+
+```{r}
+x.all <- aldex.clr(t(genus.abs),interaccion)
+kruskalaldex <-aldex.kw(x.all)
+```
+
+
+
+```{r}
+  for (mc.i in 1:mc.instances) {
+    t.input <- t(sapply(mc.all, function(y) {
+      y[, mc.i]
+    }))
+    aux <- fn.explore(t.input)
+    femalesOnly <- aux$femalesOnly
+    malesOnly <- aux$malesOnly
+    females <- aux$females
+    males <- aux$males
+    pcos <- aux$pcos
+    obesos <- aux$obesos
+    no.obesos <- aux$No.Obesos
+    females.no.obese <- aux$females.no.obese
+    males.no.obese <- aux$males.no.obese
+    pcos.no.obese <- aux$pcos.no.obese
+    females.obese <- aux$females.obese
+    males.obese <- aux$males.obese
+    pcos.obese <- aux$pcos.obese
+    
+    
+    p <- mantel.test(females,males)$p
+    # wi.p.matrix[, mc.i] <- wilcox.fast(t.input, setAsBinary, 
+    #   paired.test)
+  }
+```
+
+
+```{r}
+p<- vector("numeric",length=mc.instances)
+  for (mc.i in 1:mc.instances) {
+    t.input <- t(sapply(mc.all, function(y) {
+      y[, mc.i]
+    }))
+    aux <- fn.explore(t.input)
+    femalesOnly <- aux$femalesOnly
+    malesOnly <- aux$malesOnly
+    p[mc.i] <- mantel.test(cor(femalesOnly,method = "spearman"),cor(malesOnly,method = "spearman"))$p
+    # wi.p.matrix[, mc.i] <- wilcox.fast(t.input, setAsBinary, 
+    #   paired.test)
+  }
+mean(p)
+```
+
+```{r}
+p<- vector("numeric",length=mc.instances)
+  for (mc.i in 1:mc.instances) {
+    t.input <- t(sapply(mc.all, function(y) {
+      y[, mc.i]
+    }))
+    aux <- fn.explore(t.input)
+    femalesOnly <- aux$femalesOnly
+    malesOnly <- aux$malesOnly
+    p[mc.i] <- mantel.test(cor(femalesOnly,method = "spearman"),cor(malesOnly,method = "spearman"))$p
+    # wi.p.matrix[, mc.i] <- wilcox.fast(t.input, setAsBinary, 
+    #   paired.test)
+  }
+mean(p)
+```
+
+
+
+
+```{r}
+p<-vector("list",length=15)
+  for (mc.i in 1:mc.instances) {
+    t.input <- t(sapply(mc.all, function(y) {
+      y[, mc.i]
+    }))
+
+    paux <- vector("numeric",length=mc.all)
+    for(ci in 1:dim(combinaciones)[1]){
+      
+      paux[ci] <- mantel.test(cor(aux[combinaciones[ci,1]],method = "spearman"),
+                           cor(aux[combinaciones[ci,2]],method = "spearman"))$p
+    
+    }
+    p[[ci]]
+    # wi.p.matrix[, mc.i] <- wilcox.fast(t.input, setAsBinary, 
+    #   paired.test)
+  }
+mean(p)
+```
+
+```{r}
+
+  namesaux <-c("females.no.obese","males.no.obese","pcos.no.obese","females.obese",  "pcos.obese","males.obese" )
+combinaciones <- t(combn(namesaux,2))
+  p<-vector("list",length=15)
+
+for(ci in 1:dim(combinaciones)[1]){
+      paux <- vector("numeric",length=mc.instances)
+
+  for (mc.i in 1:mc.instances) {
+    t.input <- t(sapply(mc.all, function(y) {
+      y[, mc.i]
+    }))
+
+    aux <- fn.explore(t.input)
+    aux <- aux[names(aux)[8:13]]
+      
+    paux[ci] <- mantel.test(cor(aux[[combinaciones[ci,1]]],method = "spearman"),
+                           cor(aux[[combinaciones[ci,2]]],method = "spearman"))$p
+    
+
+ 
+    # wi.p.matrix[, mc.i] <- wilcox.fast(t.input, setAsBinary, 
+    #   paired.test)
+  }
+      
+  p[[ci]] <- paux
+}
+names(p) <-apply(combinaciones, 1, function(x) paste(x[1],x[2],collapse = " vs "))
+
+p.adjust(unlist(lapply(p, mean)),method = "bonferroni")
+```
+
+
+
+## Integracion
+```{r}
+library(MOFA2)
+set.seed(123)
+
+```
+
+```{r}
+unique(strsplit2(list.files("modelsMOFA/"),"_")[,3])
+
+models <- lapply(list.files("modelsMOFA/",full.names = T), load_model)
+
+elbos <-compare_elbo(models,return_data = T)
+
+model <-load_model(list.files("modelsMOFA",full.names = T)[which.max(elbos$ELBO)])
+```
+
+```{r}
+plot_factor_cor(model)
+```
+
+
+```{r}
+plot_variance_explained(model, x="view", y="factor")
+# 
+```
+
+```{r}
+plot_variance_explained(model, y="factor", plot_total = T)[[2]]
+```
+
+```{r}
+calculate_variance_explained(model)
+```
+
+
+```{r}
+correlate_factors_with_covariates(model, 
+  covariates = c("obesidad","grupo","edad","BMI","WC","WHR","SHGB","hsCRP","TE2","E2"), 
+  plot="log_pval"
+)
+```
+
+```{r}
+correlate_factors_with_covariates(model, 
+  covariates = c("obesidad","grupo","edad","BMI","WC","WHR","SHGB","hsCRP","TE2","E2"), 
+  plot="r"
+)
+```
+
+
+```{r}
+model@covariates <-data.frame(obesidad=as.numeric(obesidad),grupo=as.numeric(grupo),edad=Clin$EDAD,BMI=Clin$BMI,WC=Clin$WC,WHR=Clin$WHR,SHGB=Clin$SHBG,hsCRP=Clin$hsCRP,TE2=Clin$Total_ESTR,E2=Clin$Free_ESTRA)
+
+```
+
+
+
+```{r}
+factors <- get_factors(model, as.data.frame = T,scale = F)
+plot.methods <- function(factores,datos.common){
+  
+  
+  sujetos <-data.frame(Sujetos=1:length(factores),Factor=factores)
+  sexo<-datos.common$GROUP
+  obesidad<-datos.common$OBESE
+  p1<-ggplot(sujetos,aes(x=Sujetos, y=Factor)) +
+     geom_hline(yintercept = 0, color = "gray70") +
+     geom_vline(xintercept = 0, color = "gray70") +
+     geom_point(aes(color = sexo,shape=obesidad,fill=obesidad), alpha = 0.55, size = 3)  +
+     scale_color_manual(values=c("black","red","green"))+scale_shape_manual(values=c(17,15))
+  return(p1)
+}
+factores.recast <-as.data.frame(reshape2::recast(data=factors,sample~factor))
+rownames(factores.recast) <- factores.recast$sample
+factores.recast <- factores.recast[,-1]
+var.explained <-calculate_variance_explained(model)
+fac1 <- plot.methods(factores.recast[,1],datos.common)+ ggtitle(
+  paste("Factor 1 \n Metaboloma ",round(var.explained$r2_per_factor$group1[1,1],2),"\n Microbioma - ",round(var.explained$r2_per_factor$group1[1,2],2)))
+                                                               
+                                                               
+fac3 <- plot.methods(factores.recast[,3],datos.common)+ggtitle(paste("Factor 3","\n Metaboloma - ",round(var.explained$r2_per_factor$group1[3,1],2), "\n Microbioma - ",round(var.explained$r2_per_factor$group1[3,2],2)))
+
+ggarrange(fac1,fac3,common.legend = T)
+```
+
+
+### Metaboloma
+
+```{r}
+plot_weights_heatmap(model,view = 1)
+```
+
+```{r}
+plot_top_weights(model,factors=c(1,2),scale = T,nfeatures = 10)
+```
+
+
+
+```{r}
+p1<-plot_top_weights(model,factors=c(1,2),view=1,scale = T)
+top_weights <-as.character(unique(p1$data$feature[p1$data$value>0.5]))
+plot_weights_heatmap(model,view = 1,features = top_weights,factors = c(1,2,5))
+
+```
+
+
+
+```{r}
+p1<-plot_top_weights(model,factors=c(1,2),view=1)
+top_weights <-as.character(unique(p1$data$feature[p1$data$value>0.5]))
+plot_data_scatter(model,factor=c(2),view=1,features = top_weights,color_by = "obesidad",shape_by = "grupo")
+plot_data_scatter(model,factor=c(1),view=1,features = top_weights,color_by = "obesidad",shape_by = "grupo")
+```
+
+```{r}
+features <-MOFA2::features_metadata(model)
+feat.meta <- features[features$view=="metaboloma","feature"]
+MOFA2::plot_variance_explained_per_feature(model,view=c(1),split_by_factor = T,features = feat.meta,factors = c(1,2,5),return_data = F)
+```
+
+```{r}
+MOFA2::plot_weights_heatmap(model,view = 1,features = top_weights,factors = c(1,2,5))
+```
+```{r}
+MOFA2::plot_variance_explained_per_feature(model,view=c(1),split_by_factor = T,features = top_weights,factors = c(1,2,5))
+```
+
+```{r}
+
+
+
+bmi <- cbind(model@covariates$BMI,factores.recast$Factor1)
+shbg <- cbind(model@covariates$SHGB,factores.recast$Factor1)
+E2 <- cbind(model@covariates$E2,factores.recast$Factor4)
+TE2 <- cbind(model@covariates$TE2,factores.recast$Factor4)
+hscrp <- cbind(model@covariates$hsCRP,factores.recast$Factor1)
+wc <- cbind(model@covariates$WC,factores.recast$Factor1)
+whr <-cbind(model@covariates$WHR,factores.recast$Factor1) 
+
+plot.methods2(bmi,datos.common)+ggtitle("BMI")
+plot.methods2(shbg,datos.common)+ggtitle("SHBG")
+plot.methods2(E2,datos.common)+ggtitle("E2")
+plot.methods2(TE2,datos.common)+ggtitle("TE2")
+plot.methods2(hscrp,datos.common)+ggtitle("hscrp")
+plot.methods2(wc,datos.common)+ggtitle("WC")
+plot.methods2(whr,datos.common)+ggtitle("WHR")
+
+
+```
+
+
+
+
+### Microbioma
+
+```{r}
+p1<-plot_top_weights(model,factors=c(3,4,7),view=2)
+
+top_weights <-as.character(unique(p1$data$feature[p1$data$value>0.5]))
+
+```
+
+
+```{r}
+plot_weights_heatmap(model,view = 2)
+
+```
+
+```{r}
+MOFA2::plot_variance_explained_per_feature(model,view=c(2),split_by_factor = T,features = top_weights,factors = c(3,4,7))
+
+```
+
+```{r}
+p1<-plot_top_weights(model,factors=c(3,4,7),view=2)
+top_weights <-as.character(unique(p1$data$feature[p1$data$value>0.5]))
+```
+
+
+
+
+```{r}
+plot_weights_heatmap(model,view = 2,features =top_weights ,threshold = 0.4)
+
+```
+```{r}
+plot_top_weights(model,factors=c(3,4),view=2,scale = T)
+
+```
+
+
+```{r}
+plot_data_scatter(model,factor=c(1),view=´2,features = top_weights,color_by = "obesidad",shape_by = "grupo")
+```
+
+
+
+
+```{r}
+
+factors <- get_factors(model, as.data.frame = T,scale = F)
+
+weights <- rbind(get_weights(model,as.data.frame=T,scale=F,views="metaboloma"),
+                 get_weights(model,as.data.frame=T,scale=F,views="microbioma"))
+                 
+factores.recast <-as.data.frame(reshape2::recast(data=factors,sample~factor))
+rownames(factores.recast) <- factores.recast$sample
+factores.recast <- factores.recast[,-1]
+weights.recast <-as.data.frame(reshape2::recast(data=weights,feature~factor))
+rownames(weights.recast) <- weights.recast$feature
+weights.recast <- weights.recast[,-1]
+weights.recast$views <- c(rep("metabooloma",37),rep("microbioma",94))
+Y <-(as.matrix(factores.recast) %*% t(weights.recast[,-ncol(weights.recast)]))
+
+
+
+
+```
+
+```{r}
+p1 <-plot.methods(factores.recast[,1],datos.common = datos.common)
+p2 <-plot.methods(factores.recast[,4],datos.common = datos.common)
+ggarrange(p1,p2)
+```
+
+```{r}
+bmi <- scale(bind_cols(model@covariates$BMI,get_factors(model,factors = 1)))
+colnames(bmi) <- c("Factor1","Factor2")
+p1<-plot.methods2(bmi,datos.common)+ggtitle("BMI")
+p2 <-plot.methods2.ob(bmi,datos.common)+ggtitle("Factor 1 rel Meta")
+shbg <- scale(bind_cols(model@covariates$SHGB,get_factors(model,factors = 1)))
+colnames(shbg) <- c("Factor1","Factor2")
+p3<-plot.methods2(shbg,datos.common)+ggtitle("SHBG")
+p4 <-plot.methods2.ob(shbg,datos.common)+ggtitle("Factor 1 rel Meta")
+ggarrange(p1,p2,p3,p4)
+```
+```{r}
+bmi <- scale(bind_cols(model@covariates$SHGB,get_factors(model,factors = 4)))
+colnames(bmi) <- c("Factor1","Factor2")
+p1<-plot.methods2(bmi,datos.common)+ggtitle("WHR")
+p2 <-plot.methods2.ob(bmi,datos.common)+ggtitle("Factor 1 rel Meta")
+shbg <- scale(bind_cols(model@covariates$WC,get_factors(model,factors = 4)))
+colnames(shbg) <- c("Factor1","Factor2")
+p3<-plot.methods2(shbg,datos.common)+ggtitle("WC")
+p4 <-plot.methods2.ob(shbg,datos.common)+ggtitle("Factor 4 rel Meta")
+ggarrange(p3,p4)
+```
+
+```{r}
+hscrp <- (bind_cols(model@covariates$hsCRP,get_factors(model,factors = 3)))
+colnames(hscrp) <- c("Factor1","Factor2")
+p1<-plot.methods2(hscrp,datos.common)+ggtitle("hsCRP")
+p2 <-plot.methods2.ob(hscrp,datos.common)+ggtitle("Factor 3 rel Micro")
+te2 <- (bind_cols(model@covariates$E2,get_factors(model,factors = 4)))
+colnames(te2) <- c("Factor1","Factor2")
+p3<-plot.methods2(te2,datos.common)+ggtitle("TE2")
+p4 <-plot.methods2.ob(te2,datos.common)+ggtitle("Factor 4 rel Micro")
+ggarrange(p1,p2,p3,p4)
+```
+
+#### ORIGINAL Interaccion microbioma-metaboloma
+```{r}
+
+## 4 3 7 micriobioma
+## 1 2 metaboloma
+
+top_weights.metaboloma <- extract_top_weights(model,view=1,factors = c(1,2),thresh=0.4)
+top_weights.microbioma <- extract_top_weights(model,view=2,factors = c(3,4,7),thresh=0.6)
+
+
+top_pesos.names <- unique(c(top_weights.metaboloma,top_weights.microbioma))
+```
+
+
+```{r}
+metaboloma<-t(model@data$metaboloma$group1)
+metagenoma <- t(model@data$microbioma$group1)
+
+datos_in <- cbind(metaboloma=metaboloma,metagenoma=metagenoma)
+colnames(datos_in) <- c(colnames(metaboloma),colnames(genus.abs))
+rownames(datos_in) <- pacientes
+datos_in <- as.data.frame(datos_in)
+```
+
+```{r}
+datos.c <-fn.explore(datos_in)
+
+```
+
+
+```{r}
+pvals <- fn.cor.res2(datos.c$obesos[rownames(datos.c$obesos) %in% variables_in_bacteria[variables_in_bacteria$GROUP!="PCOS","Paciente"],],
+datos.c$No.Obesos[rownames(datos.c$No.Obesos) %in% variables_in_bacteria[variables_in_bacteria$GROUP!="PCOS","Paciente"],],top_pesos.names = top_pesos.names,name1="obesos CONTROL",name2="No Obesos CONTROL")
+pvals
+```
+
+
+
+```{r}
+pvals <- fn.cor.res2(datos.c$obesos,datos.c$No.Obesos,top_pesos.names = top_pesos.names,name1="obesos",name2="No Obesos")
+pvals
+```
+
+
+
+```{r}
+g.cor  <- list()
+
+combi <- t(combn(c("males","females","pcos"),2))
+interes <- grupo
+lista_in <- list(males=datos.c$males,females=datos.c$females,pcos=datos.c$pcos)
+pvals <- matrix(NA,nrow=length(levels(interes)),ncol=4)
+for(i in 1:dim(combi)[1]){
+  
+  combi_i <- combi[i,]
+  pvals[i,] <-fn.cor.res2(lista_in[[combi_i[1]]],lista_in[[combi_i[[2]]]],top_pesos.names = top_pesos.names,name1 = combi_i[1],name2=combi_i[2])
+  
+  
+}
+```
+
+```{r}
+pvals <- as.data.frame(pvals)
+colnames(pvals) <- c("cortest","manteltest","wilcox","corval")
+rownames(pvals) <- apply(combi, 1, function(x) paste(x,collapse = "_vs_"))
+
+pvals.on <- pvals[,-4]
+(pvals.adj <- round(apply(pvals.on, 2, function(x) p.adjust(x,method = "bonferroni")),5))
+```
+
+```{r}
+interaccion<-factor(paste(obesidad,grupo,sep="_"))
+
+g.cor  <- list()
+combi <- t(combn(levels(interaccion),2))
+interes <- interaccion
+lista_in <- list(No.Obese_Female=datos.c$females.no.obese,
+                 No.Obese_Male=datos.c$males.no.obese,
+                 No.Obese_PCOS=datos.c$pcos.no.obese,
+                 Obese_Female=datos.c$females.obese,
+                 Obese_Male=datos.c$males.obese,
+                 Obese_PCOS=datos.c$pcos.obese)
+pvals <- matrix(NA,nrow=dim(combi)[1],ncol=4)
+for(i in 1:dim(combi)[1]){
+  
+  combi_i <- combi[i,]
+  pvals[i,] <-fn.cor.res2(lista_in[[combi_i[1]]],lista_in[[combi_i[[2]]]],top_pesos.names = top_pesos.names,name1 = combi_i[1],name2=combi_i[2])
+  
+  
+}
+```
+
+```{r}
+pvals <- as.data.frame(pvals)
+colnames(pvals) <- c("cortest","manteltest","wilcox","corval")
+rownames(pvals) <- apply(combi, 1, function(x) paste(x,collapse = "_vs_"))
+
+pvals.on <- pvals[,-4]
+(pvals.adj <- round(apply(pvals.on, 2, function(x) p.adjust(x,method = "bonferroni")),4))
+```
+NULA MANTEL: NO HAY ASOCIACION
+```{r}
+as.data.frame(rownames(pvals.adj[pvals.adj[,2]<0.05,]))
+```
+
+
+
+
+```{r}
+fn.cor.res1(datos.c$Y,top_pesos.names = top_pesos.names,"")
+```
+
+
+
+
+#### PESOS Interaccion microbioma-metaboloma
+
+```{r}
+factors <- get_factors(model, as.data.frame = T,scale = T,groups = "all",factors = c(1,2,3,4,7))
+
+weights <-  get_weights(model,as.data.frame=T,scale=T,views="all",factors = c(1,2,3,4,7))
+                 
+factores.recast <-as.data.frame(reshape2::recast(data=factors,sample~factor))
+rownames(factores.recast) <- factores.recast$sample
+factores.recast <- factores.recast[,-1]
+weights.recast <-as.data.frame(reshape2::recast(data=weights,feature~factor))
+rownames(weights.recast) <- weights.recast$feature
+weights.recast <- weights.recast[,-1]
+weights.recast$views <- c(rep("metabooloma",37),rep("microbioma",94))
+Y <-(as.matrix(factores.recast) %*% t(weights.recast[,-ncol(weights.recast)]))
+
+
+```
+
+
+```{r}
+datos.c <-fn.explore(Y)
+top_weights.metaboloma <- extract_top_weights(model,view=1,factors = c(1,2),thresh=0.4)
+top_weights.microbioma <- extract_top_weights(model,view=2,factors = c(3,4,7),thresh=0.6)
+top_pesos.names <- unique(c(top_weights.metaboloma,top_weights.microbioma))
+```
+
+
+```{r}
+pvals <- fn.cor.res2(datos.c$obesos[rownames(datos.c$obesos) %in% variables_in_bacteria[variables_in_bacteria$GROUP!="PCOS","Paciente"],],
+datos.c$No.Obesos[rownames(datos.c$No.Obesos) %in% variables_in_bacteria[variables_in_bacteria$GROUP!="PCOS","Paciente"],],top_pesos.names = top_pesos.names,name1="obesos CONTROL",name2="No Obesos CONTROL")
+pvals
+```
+
+
+
+```{r}
+pvals <- fn.cor.res2(datos.c$obesos,datos.c$No.Obesos,top_pesos.names = top_pesos.names,name1="obesos",name2="No Obesos")
+pvals
+```
+
+
+
+```{r}
+g.cor  <- list()
+
+combi <- t(combn(c("males","females","pcos"),2))
+interes <- grupo
+lista_in <- list(males=datos.c$males,females=datos.c$females,pcos=datos.c$pcos)
+pvals <- matrix(NA,nrow=length(levels(interes)),ncol=4)
+for(i in 1:dim(combi)[1]){
+  
+  combi_i <- combi[i,]
+  pvals[i,] <-fn.cor.res2(lista_in[[combi_i[1]]],lista_in[[combi_i[[2]]]],top_pesos.names = top_pesos.names,name1 = combi_i[1],name2=combi_i[2])
+  
+  
+}
+```
+
+```{r}
+pvals <- as.data.frame(pvals)
+colnames(pvals) <- c("cortest","manteltest","wilcox","corval")
+rownames(pvals) <- apply(combi, 1, function(x) paste(x,collapse = "_vs_"))
+
+pvals.on <- pvals[,-4]
+(pvals.adj <- round(apply(pvals.on, 2, function(x) p.adjust(x,method = "bonferroni")),5))
+```
+
+```{r}
+interaccion<-factor(paste(obesidad,grupo,sep="_"))
+
+g.cor  <- list()
+combi <- t(combn(levels(interaccion),2))
+interes <- interaccion
+lista_in <- list(No.Obese_Female=datos.c$females.no.obese,
+                 No.Obese_Male=datos.c$males.no.obese,
+                 No.Obese_PCOS=datos.c$pcos.no.obese,
+                 Obese_Female=datos.c$females.obese,
+                 Obese_Male=datos.c$males.obese,
+                 Obese_PCOS=datos.c$pcos.obese)
+pvals <- matrix(NA,nrow=dim(combi)[1],ncol=4)
+for(i in 1:dim(combi)[1]){
+  
+  combi_i <- combi[i,]
+  pvals[i,] <-fn.cor.res2(lista_in[[combi_i[1]]],lista_in[[combi_i[[2]]]],top_pesos.names = top_pesos.names,name1 = combi_i[1],name2=combi_i[2])
+  
+  
+}
+```
+
+```{r}
+pvals <- as.data.frame(pvals)
+colnames(pvals) <- c("cortest","manteltest","wilcox","corval")
+rownames(pvals) <- apply(combi, 1, function(x) paste(x,collapse = "_vs_"))
+
+pvals.on <- pvals[,-4]
+(pvals.adj <- cbind(round(apply(pvals.on, 2, function(x) p.adjust(x,method = "bonferroni")),4),pvals[,4]))
+```
+NULA MANTEL: NO HAY ASOCIACION
+```{r}
+as.data.frame(rownames(pvals.adj[pvals.adj[,2]<0.05,]))
+```
+
+
+
+
+```{r}
+fn.cor.res1(datos.c$Y,top_pesos.names = top_pesos.names,"")
+```
+
+
+
+## MOFA obesidad
+
+```{r}
+unique(strsplit2(list.files("modelsMOFA_obesidad/"),"_")[,3])
+
+models <- lapply(list.files("modelsMOFA_obesidad/",full.names = T), load_model)
+
+elbos <-compare_elbo(models,return_data = T)
+
+model.obesidad <-load_model(list.files("modelsMOFA_obesidad",full.names = T)[which.max(elbos$ELBO)])
+```
+
+```{r}
+plot_data_overview(model.obesidad)
+```
+
+
+```{r}
+plot_variance_explained(model.obesidad, x="group", y="factor")
+
+```
+
+
+```{r}
+plot_variance_explained(
+  model.obesidad, 
+  x = "group", 
+  y = "factor", 
+  plot_total = T
+)[[2]]
+```
+```{r}
+calculate_variance_explained(model.obesidad)
+```
+
+```{r}
+calculate_variance_explained_per_sample(model)
+```
+
+```{r}
+p1 <-plot_top_weights(model.obesidad,factors=c(1,2),scale = T,nfeatures = 10)
+top_weights <-as.character(unique(p1$data$feature[p1$data$value>0.5]))
+features <-MOFA2::features_metadata(model.obesidad)
+feat.meta <- features[features$view=="metaboloma","feature"]
+plot_variance_explained_per_feature(model.obesidad,view=1,features = top_weights,split_by_factor = T,factor=c(1,2))
+```
+
+
+```{r}
+features <-MOFA2::features_metadata(model.obesidad)
+feat.meta <- features[features$view=="metaboloma","feature"]
+plot_variance_explained_per_feature(model.obesidad,view=1,features = feat.meta,split_by_factor = T,factor=c(1,2))
+```
+
+
+### CORRELACION COVARIABLES CONJUNTO
+```{r}
+model.obesidad@covariates <-data.frame(obesidad=as.numeric(obesidad),grupo=as.numeric(grupo),edad=Clin$EDAD,BMI=Clin$BMI,WC=Clin$WC,WHR=Clin$WHR,SHGB=Clin$SHBG,hsCRP=Clin$hsCRP,TE2=Clin$Total_ESTR,E2=Clin$Free_ESTRA)
+```
+
+```{r}
+correlate_factors_with_covariates(model.obesidad, 
+  covariates = c("grupo","edad","BMI","WC","WHR","SHGB","hsCRP","TE2","E2"), 
+  plot="log_pval",groups = "all"
+)
+```
+
+```{r}
+shbg <- as.data.frame(bind_cols(SHBG=model.obesidad@samples_metadata$SHGB,Factor1=get_factors(model.obesidad,factors=1,scale = T,as.data.frame = T)$value))
+
+  sexo<-as.factor(model.obesidad@samples_metadata$grupo)
+  obesidad<-as.factor(model.obesidad@samples_metadata$obesidad)
+  p1<-ggplot(shbg,aes(x=SHBG, y=Factor1)) +
+     geom_hline(yintercept = 0, color = "gray70") +
+     geom_vline(xintercept = 0, color = "gray70") +
+     geom_point(aes(color = sexo,shape=obesidad,fill=obesidad), alpha = 0.55, size = 3) +     scale_color_manual(values=c("black","green","red"))+scale_shape_manual(values=c(17,15))
+p1
+```
+
+```{r}
+factores.all <- get_factors(model.obesidad,factors = 1,scale = T)
+
+plot.methods <- function(factores,datos.common){
+  
+  
+  sujetos <-data.frame(Sujetos=1:length(factores),Factor=factores)
+  sexo<-datos.common$GROUP
+  obesidad<-datos.common$OBESE
+  p1<-ggplot(sujetos,aes(x=Sujetos, y=Factor)) +
+     geom_hline(yintercept = 0, color = "gray70") +
+     geom_vline(xintercept = 0, color = "gray70") +
+     geom_point(aes(color = sexo,shape=obesidad,fill=obesidad), alpha = 0.55, size = 3)  +
+     scale_color_manual(values=c("black","red","green"))+scale_shape_manual(values=c(17,15))
+  return(p1)
+}
+```
+
+
+### CORRELACION COVARIABLES NO OBESOS
+```{r}
+correlate_factors_with_covariates(model.obesidad, 
+  covariates = c("grupo","edad","BMI","WC","WHR","SHGB","hsCRP","TE2","E2"), 
+  plot="log_pval",groups = "No.Obese"
+)
+```
+```{r}
+shbg <- as.data.frame(cbind(SHBG=model.obesidad@samples_metadata$SHGB[model.obesidad@samples_metadata$obesidad=="No.Obese"],Factor1=get_factors(model.obesidad,factors=1,scale = T,as.data.frame = T,groups = "No.Obese")$value))
+
+  sexo<-as.factor(model.obesidad@samples_metadata$grupo[model.obesidad@samples_metadata$obesidad=="No.Obese"])
+  p1<-ggplot(shbg,aes(x=SHBG, y=Factor1)) +
+     geom_hline(yintercept = 0, color = "gray70") +
+     geom_vline(xintercept = 0, color = "gray70") +
+     geom_point(aes(color = sexo), alpha = 0.55, size = 3) +     scale_color_manual(values=c("black","green","red"))+scale_shape_manual(values=c(17,15))+ggtitle("Factor 1 No Obesidad SHGB")+coord_cartesian(xlim = c(min(shbg[,1]),max(shbg[,1]))) 
+  
+  shbg <- as.data.frame(bind_cols(WHR=model.obesidad@samples_metadata$WHR[model.obesidad@samples_metadata$obesidad=="No.Obese"],Factor1=get_factors(model.obesidad,factors=1,scale = T,as.data.frame = T,groups = "No.Obese")$value))
+
+  sexo<-as.factor(model.obesidad@samples_metadata$grupo[model.obesidad@samples_metadata$obesidad=="No.Obese"])
+  p2<-ggplot(shbg,aes(x=WHR, y=Factor1)) +
+     geom_hline(yintercept = 0, color = "gray70") +
+     geom_vline(xintercept = 0, color = "gray70") +
+     geom_point(aes(color = sexo), alpha = 0.55, size = 3) +     scale_color_manual(values=c("black","green","red"))+scale_shape_manual(values=c(17,15))+ggtitle("Factor 1 No Obesidad WHR")+coord_cartesian(xlim = c(min(shbg[,1]),max(shbg[,1]))) 
+  
+    shbg <- as.data.frame(bind_cols(WC=model.obesidad@samples_metadata$WC[model.obesidad@samples_metadata$obesidad=="No.Obese"],Factor1=get_factors(model.obesidad,factors=1,scale = T,as.data.frame = T,groups = "No.Obese")$value))
+
+  sexo<-as.factor(model.obesidad@samples_metadata$grupo[model.obesidad@samples_metadata$obesidad=="No.Obese"])
+  p3<-ggplot(shbg,aes(x=WC, y=Factor1)) +
+     geom_hline(yintercept = 0, color = "gray70") +
+     geom_vline(xintercept = 0, color = "gray70") +
+     geom_point(aes(color = sexo), alpha = 0.55, size = 3) +     scale_color_manual(values=c("black","green","red"))+scale_shape_manual(values=c(17,15))+ggtitle("Factor 1 No Obesidad WC")+coord_cartesian(xlim = c(min(shbg[,1]),max(shbg[,1]))) 
+
+  
+      shbg <- as.data.frame(bind_cols(TE2=model.obesidad@samples_metadata$TE2[model.obesidad@samples_metadata$obesidad=="No.Obese"],Factor1=get_factors(model.obesidad,factors=1,scale = T,as.data.frame = T,groups = "No.Obese")$value))
+
+  sexo<-as.factor(model.obesidad@samples_metadata$grupo[model.obesidad@samples_metadata$obesidad=="No.Obese"])
+p4<-ggplot(shbg,aes(x=TE2, y=Factor1)) +
+     geom_hline(yintercept = 0, color = "gray70") +
+     geom_vline(xintercept = 0, color = "gray70") +
+     geom_point(aes(color = sexo), alpha = 0.55, size = 3) +     scale_color_manual(values=c("black","green","red"))+scale_shape_manual(values=c(17,15))+ggtitle("Factor 1 No Obesidad TE2")+     coord_cartesian(xlim = c(min(shbg[,1]),max(shbg[,1])))
+
+ggarrange(p1,p2,p3,p4,ncol=2,nrow=2)
+```
+
+
+```{r}
+plot.methods3 <- function(factores,datos.common){
+  
+  
+  sujetos <-data.frame(Sujetos=1:length(factores),Factor=factores)
+  sexo<-datos.common$GROUP
+  p1<-ggplot(sujetos,aes(x=Sujetos, y=Factor)) +
+     geom_hline(yintercept = 0, color = "gray70") +
+     geom_vline(xintercept = 0, color = "gray70") +
+     geom_point(aes(color = sexo), alpha = 0.55, size = 3)  +
+     scale_color_manual(values=c("black","red","green"))
+  return(p1)
+}
+
+plot.methods4 <- function(factores,datos.common){
+  
+  
+  sujetos <-data.frame(Factor1 = factores[,1], Factor2=factores[,2])
+  sexo<-datos.common$GROUP
+  p1<-ggplot(sujetos,aes(x=Factor1, y=Factor2)) +
+     geom_hline(yintercept = 0, color = "gray70") +
+     geom_vline(xintercept = 0, color = "gray70") +
+    geom_point(aes(color = sexo), alpha = 0.55, size = 3)  +
+
+     scale_color_manual(values=c("black","red","green"))
+  return(p1)
+}
+
+```
+
+```{r}
+factores.all <- get_factors(model.obesidad,factors = 1,scale = T)
+p1 <- plot.methods3(factores.all$No.Obese[,1],datos.common[datos.common$OBESE!="No Obese",])+ggtitle("NO OBESE")
+p2 <- plot.methods3(factores.all$Obese[,1],datos.common[datos.common$OBESE!="Obese",])+ggtitle("OBESE")
+ggarrange(p1,p2,nrow=2)
+```
+
+```{r}
+shbg <- (bind_cols(scale(model.obesidad@covariates$SHGB[datos.common$OBESE=="No Obese"]),unlist(get_factors(model.obesidad,factors = 1,groups = "No.Obese"))))
+colnames(shbg) <- c("Factor1","Factor2")
+p1<-plot.methods4(as.data.frame(shbg),datos.common[datos.common$OBESE=="No Obese",])+ggtitle("SHBG No Obese Factor 1 rel")
+
+E2 <- (bind_cols(model.obesidad@covariates$E2[datos.common$OBESE=="No Obese"],get_factors(model.obesidad,factors = 3,groups = "No.Obese")))
+colnames(E2) <- c("Factor1","Factor2")
+p2<-plot.methods4(E2,datos.common[datos.common$OBESE=="No Obese",])+ggtitle("E2 No Obese Factor 3 rel")
+
+TE2 <- (bind_cols(model.obesidad@covariates$TE2[datos.common$OBESE=="No Obese"],get_factors(model.obesidad,factors = 3,groups = "No.Obese")))
+colnames(TE2) <- c("Factor1","Factor2")
+p3<-plot.methods4(TE2,datos.common[datos.common$OBESE=="No Obese",])+ggtitle("TE2 No Obese Factor 3 rel")
+ggarrange(p1,p2,p3)
+```
+
+```{r}
+correlate_factors_with_covariates(model.obesidad, 
+  covariates = c("grupo","edad","BMI","WC","WHR","SHGB","hsCRP","TE2","E2"), 
+  plot="log_pval",groups = "Obese"
+)
+```
+
+```{r}
+shbg <- as.data.frame(cbind(WC=model.obesidad@samples_metadata$WC[model.obesidad@samples_metadata$obesidad=="Obese"],Factor1=get_factors(model.obesidad,factors=1,scale = T,as.data.frame = T,groups = "Obese")$value))
+
+  sexo<-as.factor(model.obesidad@samples_metadata$grupo[model.obesidad@samples_metadata$obesidad=="Obese"])
+  p1<-ggplot(shbg,aes(x=WC, y=Factor1)) +
+     geom_hline(yintercept = 0, color = "gray70") +
+     geom_vline(xintercept = 0, color = "gray70") +
+     geom_point(aes(color = sexo), alpha = 0.55, size = 3) +     scale_color_manual(values=c("black","green","red"))+scale_shape_manual(values=c(17,15))+ggtitle("Factor 1 Obesidad WC")+coord_cartesian(xlim = c(min(shbg[,1]),max(shbg[,1]))) 
+  
+  shbg <- as.data.frame(bind_cols(hSCRP=model.obesidad@samples_metadata$hsCRP[model.obesidad@samples_metadata$obesidad=="No.Obese"],Factor1=get_factors(model.obesidad,factors=1,scale = T,as.data.frame = T,groups = "No.Obese")$value))
+
+  sexo<-as.factor(model.obesidad@samples_metadata$grupo[model.obesidad@samples_metadata$obesidad=="Obese"])
+  p2<-ggplot(shbg,aes(x=hSCRP, y=Factor1)) +
+     geom_hline(yintercept = 0, color = "gray70") +
+     geom_vline(xintercept = 0, color = "gray70") +
+     geom_point(aes(color = sexo), alpha = 0.55, size = 3) +     scale_color_manual(values=c("black","green","red"))+scale_shape_manual(values=c(17,15))+ggtitle("Factor 1 Obesidad hsCRP")+coord_cartesian(xlim = c(min(shbg[,1]),max(shbg[,1]))) 
+  
+
+  
+  shbg <- as.data.frame(bind_cols(hSCRP=model.obesidad@samples_metadata$hsCRP[model.obesidad@samples_metadata$obesidad=="No.Obese"],Factor1=get_factors(model.obesidad,factors=3,scale = T,as.data.frame = T,groups = "No.Obese")$value))
+
+  sexo<-as.factor(model.obesidad@samples_metadata$grupo[model.obesidad@samples_metadata$obesidad=="Obese"])
+  p3<-ggplot(shbg,aes(x=hSCRP, y=Factor1)) +
+     geom_hline(yintercept = 0, color = "gray70") +
+     geom_vline(xintercept = 0, color = "gray70") +
+     geom_point(aes(color = sexo), alpha = 0.55, size = 3) +     scale_color_manual(values=c("black","green","red"))+scale_shape_manual(values=c(17,15))+ggtitle("Factor 3 Obesidad hsCRP")+coord_cartesian(xlim = c(min(shbg[,1]),max(shbg[,1]))) 
+  
+ggarrange(p1,p2,p3,nrow=2,ncol=2)
+```
+
+
+
+
+
+
+### Metaboloma
+
+
+
+```{r}
+features <- model.obesidad@features_metadata[model.obesidad@features_metadata$view!="microbioma",1]
+MOFA2::plot_variance_explained_per_feature(model.obesidad,view=1,features = features)
+```
+
+```{r}
+MOFA2::plot_variance_explained_per_feature(model.obesidad,view=1,features = top_weights,split_by_factor = T,factors = c(1,2))
+
+```
+
+```{r}
+p<-plot_top_weights(model.obesidad,view=1,factor=c(1,2),scale = T)
+p
+
+top_weights <-as.character(unique(p$data$feature[abs(p$data$value)>=0.5]))
+```
+
+```{r}
+MOFA2::plot_data_heatmap(model.obesidad,factor = c(1),groups = "No.Obese",features = top_weights)
+```
+
+```{r}
+
+p1 <-plot_weights_heatmap(model.obesidad,view = 1,features = top_weights)
+p2 <-MOFA2::plot_data_heatmap(model.obesidad,factor = c(1),groups = "Obese",features = top_weights)
+
+```
+
+```{r}
+MOFA2::plot_data_heatmap(model.obesidad,factor = c(2),groups = "Obese",features = top_weights)
+```
+
+
+```{r}
+MOFA2::plot_data_heatmap(model.obesidad,factor = c(1),groups = "No.Obese",features = top_weights)
+```
+
+```{r}
+MOFA2::plot_data_heatmap(model.obesidad,factor = c(2),groups = "No.Obese",features = top_weights)
+```
+
+```{r}
+MOFA2::plot_weights_heatmap(model.obesidad,view = 1,features =top_weights )
+```
+
+
+
+```{r}
+features <- model.obesidad@features_metadata[model.obesidad@features_metadata$view!="microbioma",1]
+plot_variance_explained_per_feature(model.obesidad,view="metaboloma",features = top_weights,split_by_factor = T,factors = c(1,2))
+```
+
+
+```{r}
+plot_data_scatter(model.obesidad,factor=c(2),view=1,features = top_weights,color_by = "grupo",shape_by = "obesidad",groups = "Obese")
+```
+
+```{r}
+plot_data_scatter(model.obesidad,factor=c(2),view=1,features = top_weights,color_by = "grupo",shape_by = "obesidad",groups = "Obese")
+```
+
+
+```{r}
+plot_data_scatter(model.obesidad,factor=c(1),view=,features = top_weights,color_by = "grupo",shape_by = "obesidad",groups = "Obese")
+```
+
+
+```{r}
+plot_data_scatter(model.obesidad,factor=c(2),view=1,features = top_weights,color_by = "grupo",shape_by = "obesidad",groups = "Obese")
+```
+
+
+
+
+
+### Microbioma
+
+```{r}
+model.obesidad@covariates <-data.frame(obesidad=as.numeric(obesidad),grupo=as.numeric(grupo),edad=Clin$EDAD,BMI=Clin$BMI,WC=Clin$WC,WHR=Clin$WHR,SHGB=Clin$SHBG,hsCRP=Clin$hsCRP,TE2=Clin$Total_ESTR,E2=Clin$Free_ESTRA)
+```
+
+```{r}
+p <-plot_top_weights(model.obesidad,view = 2,factors=c(3,5))
+p
+```
+
+
+```{r}
+p <-plot_top_weights(model.obesidad,view = 2,factors=c(3,4,5,6),scale = T)
+
+top_weights <-as.character(unique(p$data$feature[abs(p$data$value)>=0.5]))
+
+```
+
+```{r}
+features <- model.obesidad@features_metadata[model.obesidad@features_metadata$view!="metaboloma",1]
+MOFA2::plot_variance_explained_per_feature(model.obesidad,view=2,features = top_weights,split_by_factor = T,factors = c(3,5))
+```
+
+```{r}
+
+```
+
+```{r}
+MOFA2::plot_data_heatmap(model.obesidad,factor = c(3),groups = "Obese",features = top_weights,view = 2)
+```
+```{r}
+MOFA2::plot_data_heatmap(model.obesidad,factor = c(6),groups = "Obese",features = top_weights,view = 2)
+```
+
+```{r}
+MOFA2::plot_data_heatmap(model.obesidad,factor = c(6),groups = "No.Obese",features = top_weights,view=2)
+```
+
+
+```{r}
+MOFA2::plot_data_heatmap(model.obesidad,factor = c(6),groups = "Obese",features = top_weights,view=2)
+```
+
+```{r}
+plot_data_scatter(model.obesidad,factor=c(1),view=2,features = top_weights,color_by = "grupo",shape_by = "obesidad",groups = "Obese")
+
+```
+
+```{r}
+plot_data_scatter(model.obesidad,factor=c(1),view=2,features = top_weights,color_by = "grupo",shape_by = "obesidad",groups = "No.Obese")
+```
+
+```{r}
+plot_data_scatter(model.obesidad,factor=c(6),view=2,features = top_weights,color_by = "grupo",shape_by = "obesidad",groups = "No.Obese")
+```
+
+
+### INTERACCION OBESOS NO OBESOS
+```{r}
+metaboloma.noob <- model.obesidad@data$metaboloma$No.Obese
+metaboloma.ob <- model.obesidad@data$metaboloma$Obese
+
+metagenoma.noob <- model.obesidad@data$microbioma$No.Obese
+metagenoma.ob <- model.obesidad@data$microbioma$Obese
+
+```
+
+```{r}
+metaboloma <- t(cbind(metaboloma.noob,metaboloma.ob))
+metagenoma <- t(cbind(metagenoma.noob,metagenoma.ob))
+
+datos_in <- as.data.frame(cbind(metaboloma,metagenoma))
+```
+
+```{r}
+rownames(datos_in)
+variables_integracion <- data.frame(grupo=rep(NA,nrow(datos_in)),obesidad=rep(NA,nrow(datos_in)))
+variables_integracion$grupo <- ifelse(grepl("^M",rownames(datos_in),ignore.case = T),"Female",variables_integracion$grupo)
+variables_integracion$grupo <- ifelse(grepl("^P",rownames(datos_in),ignore.case = T),"PCOS",variables_integracion$grupo)
+variables_integracion$grupo <- ifelse(grepl("^V",rownames(datos_in),ignore.case = T),"Male",variables_integracion$grupo)
+
+variables_integracion$obesidad <- ifelse(grepl("^[MPV]O",rownames(datos_in),ignore.case = T),"Obese",variables_integracion$obesidad)
+variables_integracion$obesidad <- ifelse(grepl("^[MPV]d",rownames(datos_in),ignore.case = T),"No.Obese",variables_integracion$obesidad)
+
+
+variables_integracion$grupo <- as.factor(variables_integracion$grupo)
+variables_integracion$obesidad <- as.factor(variables_integracion$obesidad)
+
+variables_integracion$pacientes <- rownames(datos_in)
+```
+#### OBESIDAD CONTROL ORIGINAL
+
+```{r}
+
+
+datos.out <- fn.explore2(datos_in,variables_integracion)
+
+```
+
+
+```{r}
+p <-plot_top_weights(model.obesidad,view =1,factors=c(1,2),scale = T)
+q <-plot_top_weights(model.obesidad,view = 2,factors=c(3,6),scale = T)
+
+top_weights.metaboloma <-as.character(unique(p$data$feature[abs(p$data$value)>=0.4]))
+top_weights.metagenoma <-as.character(unique(q$data$feature[abs(q$data$value)>=0.4]))
+top_pesos.names <- unique(c(top_weights.metaboloma,top_weights.metagenoma))
+top_pesos.names
+```
+
+```{r}
+obesos2 <- fn.cor.res2(datos.out$obesos[rownames(datos.out$obesos) %in% variables_integracion[variables_integracion$grupo!="PCOS","pacientes"],]
+,datos.out$No.Obesos[rownames(datos.out$No.Obesos) %in% variables_integracion[variables_integracion$grupo!="PCOS","pacientes"],]
+,top_pesos.names = top_pesos.names,name1 = "Obese CONTROL",name2 = "No Obese CONTROL")
+obesos2
+```
+
+```{r}
+obesos2 <- fn.cor.res2(datos.out$obesos
+,datos.out$No.Obesos
+,top_pesos.names = top_pesos.names,name1 = "Obese",name2 = "No Obese")
+obesos2
+```
+
+
+```{r}
+obesos2 <- fn.cor.res2(datos.out$pcos.no.obese,datos.out$pcos.obese,top_pesos.names = top_pesos.names,name1 = "PCOS No Obese",name2 = "PCOS Obese")
+obesos2
+
+```
+
+```{r}
+interaccion<-factor(paste(obesidad,grupo,sep="_"))
+
+g.cor  <- list()
+combi <- t(combn(levels(interaccion),2))
+interes <- interaccion
+lista_in <- list(No.Obese_Female=datos.out$females.no.obese,
+                 No.Obese_Male=datos.out$males.no.obese,
+                 No.Obese_PCOS=datos.out$pcos.no.obese,
+                 Obese_Female=datos.out$females.obese,
+                 Obese_Male=datos.out$males.obese,
+                 Obese_PCOS=datos.out$pcos.obese)
+pvals <- matrix(NA,nrow=dim(combi)[1],ncol=4)
+for(i in 1:dim(combi)[1]){
+  
+  combi_i <- combi[i,]
+  pvals[i,] <-fn.cor.res2(lista_in[[combi_i[1]]],lista_in[[combi_i[[2]]]],top_pesos.names = top_pesos.names,name1 = combi_i[1],name2=combi_i[2])
+  
+  
+}
+```
+
+```{r}
+pvals <- as.data.frame(pvals)
+colnames(pvals) <- c("cortest","manteltest","wilcox","corval")
+rownames(pvals) <- apply(combi, 1, function(x) paste(x,collapse = "_vs_"))
+
+pvals.on <- pvals[,-4]
+(pvals.adj <- cbind(round(apply(pvals.on, 2, function(x) p.adjust(x,method = "bonferroni")),4),cor=pvals[,4]))
+```
+
+
+```{r}
+pvals.adj[pvals.adj[,2]<0.05,]
+```
+
+
+
+```{r}
+
+g.cor  <- list()
+combi <- t(combn(levels(grupo),2))
+interes <- grupo
+lista_in <- list(Female=datos.out$females,
+                 Male=datos.out$males,
+                 PCOS=datos.out$pcos)
+pvals <- matrix(NA,nrow=dim(combi)[1],ncol=4)
+for(i in 1:dim(combi)[1]){
+  
+  combi_i <- combi[i,]
+  pvals[i,] <-fn.cor.res2(lista_in[[combi_i[1]]],lista_in[[combi_i[[2]]]],top_pesos.names = top_pesos.names,name1 = combi_i[1],name2=combi_i[2])
+  
+  
+}
+```
+
+```{r}
+pvals <- as.data.frame(pvals)
+colnames(pvals) <- c("cortest","manteltest","wilcox","corval")
+rownames(pvals) <- apply(combi, 1, function(x) paste(x,collapse = "_vs_"))
+
+pvals.on <- pvals[,-4]
+(pvals.adj <- cbind(round(apply(pvals.on, 2, function(x) p.adjust(x,method = "bonferroni")),4),cor=pvals[,4]))
+```
+
+
+```{r}
+pvals.adj[pvals.adj[,2]<0.05,]
+```
+
+
+
+```{r}
+
+factors <- get_factors(model.obesidad, as.data.frame = T,scale = T,groups = "No.Obese")
+
+weights <- rbind(get_weights(model.obesidad,as.data.frame=T,scale=T,views="metaboloma"),
+                 get_weights(model.obesidad,as.data.frame=T,scale=T,views="microbioma"))
+                 
+factores.recast <-as.data.frame(reshape2::recast(data=factors,sample~factor))
+rownames(factores.recast) <- factores.recast$sample
+factores.recast <- factores.recast[,c(2,3,4,7)]
+weights.recast <-as.data.frame(reshape2::recast(data=weights,feature~factor))
+rownames(weights.recast) <- weights.recast$feature
+weights.recast <- weights.recast[,c(2,3,4,7)]
+weights.recast$views <- c(rep("metabooloma",37),rep("microbioma",94))
+Y.noob <-(as.matrix(factores.recast) %*% t(weights.recast[,-ncol(weights.recast)]))
+
+factors <- get_factors(model.obesidad, as.data.frame = T,scale = F,groups = "Obese")
+
+weights <- rbind(get_weights(model.obesidad,as.data.frame=T,scale=F,views="metaboloma"),
+                 get_weights(model.obesidad,as.data.frame=T,scale=F,views="microbioma"))
+                 
+factores.recast <-as.data.frame(reshape2::recast(data=factors,sample~factor))
+rownames(factores.recast) <- factores.recast$sample
+factores.recast <- factores.recast[,c(2,3,4,7)]
+weights.recast <-as.data.frame(reshape2::recast(data=weights,feature~factor))
+rownames(weights.recast) <- weights.recast$feature
+weights.recast <- weights.recast[,c(2,3,4,7)]
+weights.recast$views <- c(rep("metabooloma",37),rep("microbioma",94))
+Y.ob <-(as.matrix(factores.recast) %*% t(weights.recast[,-ncol(weights.recast)]))
+
+```
+
+```{r}
+pcy <- prcomp((Y.noob),scale. = F)
+varianzas <- 100*(pcy$sdev^2/sum(pcy$sdev^2))
+p1 <-plot.methods2(factores = pcy$x[,1:2],datos.common = datos.common[variables_in_bacteria$OBESE=="No Obese",])+xlab(paste("PC1",round(varianzas[1],2),"%"))+ylab(paste("PC",round(varianzas[2],2),"%"))+ggtitle("Restore PCA No Obese")
+
+pcy <- prcomp((Y.ob),scale. = F)
+varianzas <- 100*(pcy$sdev^2/sum(pcy$sdev^2))
+p2 <-plot.methods2(factores = pcy$x[,1:2],datos.common = datos.common[variables_in_bacteria$OBESE=="No Obese",])+xlab(paste("PC1",round(varianzas[1],2),"%"))+ylab(paste("PC",round(varianzas[2],2),"%"))+ggtitle("Restore PCA Obese")
+
+
+ggarrange(p1,p2,nrow=2)
+```
+
+
+```{r}
+Y.obese <- fun_restore(model.obesidad,"Obese")
+plot.methods3(Y.obese$factores[,1],datos.common = datos.common[datos.common$OBESE=="Obese",])
+Y.obese <- fun_restore(model.obesidad,"No.Obese")
+plot.methods3(Y.obese$factores[,1],datos.common = datos.common[datos.common$OBESE=="No Obese",])
+```
+
+
+#### OBESIDAD CONTROL PESOS
+
+```{r}
+factors <- get_factors(model.obesidad, as.data.frame = T,scale = T,groups = "all",factors = c(1,2,3,6))
+
+weights <-  get_weights(model.obesidad,as.data.frame=T,scale=T,views="all",factors = c(1,2,3,6))
+                 
+factores.recast <-as.data.frame(reshape2::recast(data=factors,sample~factor))
+rownames(factores.recast) <- factores.recast$sample
+factores.recast <- factores.recast[,-1]
+weights.recast <-as.data.frame(reshape2::recast(data=weights,feature~factor))
+rownames(weights.recast) <- weights.recast$feature
+weights.recast <- weights.recast[,-1]
+weights.recast$views <- c(rep("metabooloma",37),rep("microbioma",94))
+Y <-(as.matrix(factores.recast) %*% t(weights.recast[,-ncol(weights.recast)]))
+
+
+```
+
+
+
+```{r}
+#### OBESIDAD CONTROL ORIGINAL
+
+
+datos.out <- fn.explore2(Y,variables_integracion)
+
+```
+
+
+```{r}
+p <-plot_top_weights(model.obesidad,view =1,factors=c(1,2),scale = T)
+q <-plot_top_weights(model.obesidad,view = 2,factors=c(3,6),scale = T)
+
+top_weights.metaboloma <-as.character(unique(p$data$feature[abs(p$data$value)>=0.4]))
+top_weights.metagenoma <-as.character(unique(q$data$feature[abs(q$data$value)>=0.4]))
+top_pesos.names <- unique(c(top_weights.metaboloma,top_weights.metagenoma))
+top_pesos.names
+```
+
+```{r}
+obesos2 <- fn.cor.res2(datos.out$obesos[rownames(datos.out$obesos) %in% variables_integracion[variables_integracion$grupo!="PCOS","pacientes"],]
+,datos.out$No.Obesos[rownames(datos.out$No.Obesos) %in% variables_integracion[variables_integracion$grupo!="PCOS","pacientes"],]
+,top_pesos.names = top_pesos.names,name1 = "Obese CONTROL",name2 = "No Obese CONTROL")
+obesos2
+```
+
+```{r}
+obesos2 <- fn.cor.res2(datos.out$obesos
+,datos.out$No.Obesos
+,top_pesos.names = top_pesos.names,name1 = "Obese",name2 = "No Obese")
+obesos2
+```
+
+
+```{r}
+obesos2 <- fn.cor.res2(datos.out$pcos.no.obese,datos.out$pcos.obese,top_pesos.names = top_pesos.names,name1 = "PCOS No Obese",name2 = "PCOS Obese")
+obesos2
+
+```
+
+```{r}
+interaccion<-factor(paste(obesidad,grupo,sep="_"))
+
+g.cor  <- list()
+combi <- t(combn(levels(interaccion),2))
+interes <- interaccion
+lista_in <- list(No.Obese_Female=datos.out$females.no.obese,
+                 No.Obese_Male=datos.out$males.no.obese,
+                 No.Obese_PCOS=datos.out$pcos.no.obese,
+                 Obese_Female=datos.out$females.obese,
+                 Obese_Male=datos.out$males.obese,
+                 Obese_PCOS=datos.out$pcos.obese)
+pvals <- matrix(NA,nrow=dim(combi)[1],ncol=4)
+for(i in 1:dim(combi)[1]){
+  
+  combi_i <- combi[i,]
+  pvals[i,] <-fn.cor.res2(lista_in[[combi_i[1]]],lista_in[[combi_i[[2]]]],top_pesos.names = top_pesos.names,name1 = combi_i[1],name2=combi_i[2])
+  
+  
+}
+```
+
+```{r}
+pvals <- as.data.frame(pvals)
+colnames(pvals) <- c("cortest","manteltest","wilcox","corval")
+rownames(pvals) <- apply(combi, 1, function(x) paste(x,collapse = "_vs_"))
+
+pvals.on <- pvals[,-4]
+(pvals.adj <- cbind(round(apply(pvals.on, 2, function(x) p.adjust(x,method = "bonferroni")),4),cor=pvals[,4]))
+```
+
+
+```{r}
+pvals.adj[pvals.adj[,2]>0.05,]
+```
+
+
+
+```{r}
+
+g.cor  <- list()
+combi <- t(combn(levels(grupo),2))
+interes <- grupo
+lista_in <- list(Female=datos.out$females,
+                 Male=datos.out$males,
+                 PCOS=datos.out$pcos)
+pvals <- matrix(NA,nrow=dim(combi)[1],ncol=4)
+for(i in 1:dim(combi)[1]){
+  
+  combi_i <- combi[i,]
+  pvals[i,] <-fn.cor.res2(lista_in[[combi_i[1]]],lista_in[[combi_i[[2]]]],top_pesos.names = top_pesos.names,name1 = combi_i[1],name2=combi_i[2])
+  
+  
+}
+```
+
+```{r}
+pvals <- as.data.frame(pvals)
+colnames(pvals) <- c("cortest","manteltest","wilcox","corval")
+rownames(pvals) <- apply(combi, 1, function(x) paste(x,collapse = "_vs_"))
+
+pvals.on <- pvals[,-4]
+(pvals.adj <- cbind(round(apply(pvals.on, 2, function(x) p.adjust(x,method = "bonferroni")),4),cor=pvals[,4]))
+```
+
+
+```{r}
+pvals.adj[pvals.adj[,2]<0.05,]
+```
+
+#### DIMRED
+
+```{r}
+
+factors <- get_factors(model.obesidad, as.data.frame = T,scale = T,groups = "No.Obese")
+
+weights <- rbind(get_weights(model.obesidad,as.data.frame=T,scale=T,views="metaboloma"),
+                 get_weights(model.obesidad,as.data.frame=T,scale=T,views="microbioma"))
+                 
+factores.recast <-as.data.frame(reshape2::recast(data=factors,sample~factor))
+rownames(factores.recast) <- factores.recast$sample
+factores.recast <- factores.recast[,c(2,3,4,7)]
+weights.recast <-as.data.frame(reshape2::recast(data=weights,feature~factor))
+rownames(weights.recast) <- weights.recast$feature
+weights.recast <- weights.recast[,c(2,3,4,7)]
+weights.recast$views <- c(rep("metabooloma",37),rep("microbioma",94))
+Y.noob <-(as.matrix(factores.recast) %*% t(weights.recast[,-ncol(weights.recast)]))
+
+factors <- get_factors(model.obesidad, as.data.frame = T,scale = F,groups = "Obese")
+
+weights <- rbind(get_weights(model.obesidad,as.data.frame=T,scale=F,views="metaboloma"),
+                 get_weights(model.obesidad,as.data.frame=T,scale=F,views="microbioma"))
+                 
+factores.recast <-as.data.frame(reshape2::recast(data=factors,sample~factor))
+rownames(factores.recast) <- factores.recast$sample
+factores.recast <- factores.recast[,c(2,3,4,7)]
+weights.recast <-as.data.frame(reshape2::recast(data=weights,feature~factor))
+rownames(weights.recast) <- weights.recast$feature
+weights.recast <- weights.recast[,c(2,3,4,7)]
+weights.recast$views <- c(rep("metabooloma",37),rep("microbioma",94))
+Y.ob <-(as.matrix(factores.recast) %*% t(weights.recast[,-ncol(weights.recast)]))
+
+```
+
+```{r}
+## Obese
+pcy <- prcomp((Y.ob),scale. = F)
+varianzas <- 100*(pcy$sdev^2/sum(pcy$sdev^2))
+datos <- as.data.frame(bind_cols(pcy$x[,1:2]))
+grupo<-variables_integracion[variables_integracion$obesidad == "Obese","grupo"]
+  p1<-ggplot(datos,aes(x=PC1, y=PC2)) +
+     geom_hline(yintercept = 0, color = "gray70") +
+     geom_vline(xintercept = 0, color = "gray70") +
+     geom_point(aes(color = grupo), alpha = 0.55, size = 3) +
+     coord_cartesian(xlim = c(min(datos[,1]),max(datos[,1]))) +
+     scale_color_manual(values=c("black","red","green"))+xlab(paste("PC1",round(varianzas[1],2),"%"))+ylab(paste("PC2",round(varianzas[2],2),"%"))+ggtitle("Restore PCA Obese")
+  
+  
+## No obese
+pcy <- prcomp((Y.noob),scale. = F)
+varianzas <- 100*(pcy$sdev^2/sum(pcy$sdev^2))
+datos <- as.data.frame(bind_cols(pcy$x[,1:2]))
+grupo<-variables_integracion[variables_integracion$obesidad == "No.Obese","grupo"]
+  p2<-ggplot(datos,aes(x=PC1, y=PC2)) +
+     geom_hline(yintercept = 0, color = "gray70") +
+     geom_vline(xintercept = 0, color = "gray70") +
+     geom_point(aes(color = grupo), alpha = 0.55, size = 3) +
+     coord_cartesian(xlim = c(min(datos[,1]),max(datos[,1]))) +
+     scale_color_manual(values=c("black","red","green"))+xlab(paste("PC1",round(varianzas[1],2),"%"))+ylab(paste("PC2",round(varianzas[2],2),"%"))+ggtitle("Restore PCA No Obese")
+  
+
+ggarrange(p1,p2,nrow=2)
+```
+
+
+
+
+```{r}
+Y.obese <- fun_restore(model.obesidad,"Obese")
+p1<-plot.methods3(Y.obese$factores[,1],datos.common = datos.common[datos.common$OBESE=="Obese",])
+Y.obese <- fun_restore(model.obesidad,"No.Obese")
+p2 <-plot.methods3(Y.obese$factores[,1],datos.common = datos.common[datos.common$OBESE=="No Obese",])
+ggarrange(p1,p2,nrow=2)
+```
+
+
+
+## MOFA GRUPOS
+```{r}
+unique(strsplit2(list.files("modelsMOFA_group/"),"_")[,3])
+
+models <- lapply(list.files("modelsMOFA_group/",full.names = T), load_model)
+
+elbos <-compare_elbo(models,return_data = T)
+
+model.grupo <-load_model(list.files("modelsMOFA_group",full.names = T)[which.max(elbos$ELBO)])
+```
+
+
+```{r}
+obesidad <-  variables_in_bacteria$OBESE
+grupo <- variables_in_bacteria$GROUP
+plot_data_overview(model.grupo)
+model.grupo@covariates<-data.frame(obesidad=as.numeric(obesidad),grupo=as.numeric(grupo),edad=Clin$EDAD,BMI=Clin$BMI,WC=Clin$WC,WHR=Clin$WHR,SHGB=Clin$SHBG,hsCRP=Clin$hsCRP,TE2=Clin$Total_ESTR,E2=Clin$Free_ESTRA)
+```
+
+
+```{r}
+plot_variance_explained(model.grupo, x="view", y="factor")
+
+```
+
+```{r}
+plot_variance_explained(model.grupo, y="factor", plot_total = T,split_by = "group")[[2]]
+
+```
+### CORRELACION COVARIABLES GENERAL
+```{r}
+correlate_factors_with_covariates(model.grupo, 
+  covariates = c("obesidad","grupo","edad","BMI","WC","WHR","SHGB","hsCRP","TE2","E2"), 
+  plot="log_pval"
+)
+```
+
+```{r}
+datagg <- as.data.frame(cbind(BMI=model.grupo@samples_metadata$BMI,Factor1=get_factors(model.grupo,factors=1,scale = T,as.data.frame = T,groups = "all")$value))
+
+  obesidad<-as.factor(model.grupo@samples_metadata$obesidad)
+    sexo<-as.factor(model.grupo@samples_metadata$grupo)
+
+  p1<-ggplot(datagg,aes(x=BMI, y=Factor1)) +
+     geom_hline(yintercept = 0, color = "gray70") +
+     geom_vline(xintercept = 0, color = "gray70") + ggtitle("Factor 1 all BMI")+coord_cartesian(xlim = c(min(datagg[,1]),max(datagg[,1]))) + geom_point(aes(color = sexo,shape=obesidad,fill=obesidad), alpha = 0.55, size = 3) + scale_color_manual(values=c("black","green","red"))+scale_shape_manual(values=c(17,15))
+  
+ datagg <- as.data.frame(cbind(SHBG=model.grupo@samples_metadata$SHGB,Factor1=get_factors(model.grupo,factors=1,scale = T,as.data.frame = T,groups = "all")$value))
+
+  obesidad<-as.factor(model.grupo@samples_metadata$obesidad)
+    sexo<-as.factor(model.grupo@samples_metadata$grupo)
+
+  p2<-ggplot(datagg,aes(x=SHBG, y=Factor1)) +
+     geom_hline(yintercept = 0, color = "gray70") +
+     geom_vline(xintercept = 0, color = "gray70") + ggtitle("Factor 1 all SHBG")+coord_cartesian(xlim = c(min(datagg[,1]),max(datagg[,1]))) + geom_point(aes(color = sexo,shape=obesidad,fill=obesidad), alpha = 0.55, size = 3) + scale_color_manual(values=c("black","green","red"))+scale_shape_manual(values=c(17,15))
+  
+  
+ datagg <- as.data.frame(cbind(SHBG=model.grupo@samples_metadata$SHGB,Factor1=get_factors(model.grupo,factors=4,scale = T,as.data.frame = T,groups = "all")$value))
+
+  obesidad<-as.factor(model.grupo@samples_metadata$obesidad)
+    sexo<-as.factor(model.grupo@samples_metadata$grupo)
+
+  p3<-ggplot(datagg,aes(x=SHBG, y=Factor1)) +
+     geom_hline(yintercept = 0, color = "gray70") +
+     geom_vline(xintercept = 0, color = "gray70") + ggtitle("Factor 4 all SHBG")+coord_cartesian(xlim = c(min(datagg[,1]),max(datagg[,1]))) + geom_point(aes(color = sexo,shape=obesidad,fill=obesidad), alpha = 0.55, size = 3) + scale_color_manual(values=c("black","green","red"))+scale_shape_manual(values=c(17,15))
+  
+  
+   datagg <- as.data.frame(cbind(E2=model.grupo@samples_metadata$E2,Factor1=get_factors(model.grupo,factors=1,scale = T,as.data.frame = T,groups = "all")$value))
+
+  obesidad<-as.factor(model.grupo@samples_metadata$obesidad)
+    sexo<-as.factor(model.grupo@samples_metadata$grupo)
+
+  p4<-ggplot(datagg,aes(x=E2, y=Factor1)) +
+     geom_hline(yintercept = 0, color = "gray70") +
+     geom_vline(xintercept = 0, color = "gray70") + ggtitle("Factor 4 all E2")+coord_cartesian(xlim = c(min(datagg[,1]),max(datagg[,1]))) + geom_point(aes(color = sexo,shape=obesidad,fill=obesidad), alpha = 0.55, size = 3) + scale_color_manual(values=c("black","green","red"))+scale_shape_manual(values=c(17,15))
+
+ggarrange(p1,p2,p3,p4,ncol=2,nrow=2)
+```
+
+### CORRELACION COVARIABLES HOMBRES
+
+```{r}
+correlate_factors_with_covariates(model.grupo, 
+  covariates = c("obesidad","edad","BMI","WC","WHR","SHGB","hsCRP","TE2","E2"), 
+  plot="log_pval",groups = "Male"
+)
+```
+
+
+```{r}
+datagg <- as.data.frame(cbind(WHR=model.grupo@samples_metadata$WHR[model.grupo@samples_metadata$grupo=="Male"],Factor1=get_factors(model.grupo,factors=1,scale = T,as.data.frame = T,groups = "Male")$value))
+
+  obesidad<-as.factor(model.grupo@samples_metadata$obesidad[model.grupo@samples_metadata$grupo=="Male"])
+  p1<-ggplot(datagg,aes(x=WHR, y=Factor1)) +
+     geom_hline(yintercept = 0, color = "gray70") +
+     geom_vline(xintercept = 0, color = "gray70") +
+     geom_point(aes(color = obesidad), alpha = 0.55, size = 3) +     scale_color_manual(values=c("black","red"))+ggtitle("Factor 1 Males WHR")+coord_cartesian(xlim = c(min(datagg[,1]),max(datagg[,1]))) 
+  
+ datagg <- as.data.frame(cbind(WC=model.grupo@samples_metadata$WC[model.grupo@samples_metadata$grupo=="Male"],Factor1=get_factors(model.grupo,factors=1,scale = T,as.data.frame = T,groups = "Male")$value))
+
+  obesidad<-as.factor(model.grupo@samples_metadata$obesidad[model.grupo@samples_metadata$grupo=="Male"])
+  p2<-ggplot(datagg,aes(x=WC, y=Factor1)) +
+     geom_hline(yintercept = 0, color = "gray70") +
+     geom_vline(xintercept = 0, color = "gray70") +
+     geom_point(aes(color = obesidad), alpha = 0.55, size = 3) +     scale_color_manual(values=c("black","red"))+ggtitle("Factor 1 Males WC")+coord_cartesian(xlim = c(min(datagg[,1]),max(datagg[,1]))) 
+  
+ datagg <- as.data.frame(cbind(BMI=model.grupo@samples_metadata$BMI[model.grupo@samples_metadata$grupo=="Male"],Factor1=get_factors(model.grupo,factors=1,scale = T,as.data.frame = T,groups = "Male")$value))
+
+  obesidad<-as.factor(model.grupo@samples_metadata$obesidad[model.grupo@samples_metadata$grupo=="Male"])
+  p3<-ggplot(datagg,aes(x=BMI, y=Factor1)) +
+     geom_hline(yintercept = 0, color = "gray70") +
+     geom_vline(xintercept = 0, color = "gray70") +
+     geom_point(aes(color = obesidad), alpha = 0.55, size = 3) +     scale_color_manual(values=c("black","red"))+ggtitle("Factor 1 Males BMI")+coord_cartesian(xlim = c(min(datagg[,1]),max(datagg[,1]))) 
+  
+
+ggarrange(p1,p2,p3,ncol=2,nrow=2)
+```
+
+### CORRELACION COVARIABLES MUJERES CONTROL
+```{r}
+correlate_factors_with_covariates(model.grupo, 
+  covariates = c("obesidad","edad","BMI","WC","WHR","SHGB","hsCRP","TE2","E2"), 
+  plot="log_pval",groups = "Female"
+)
+```
+
+
+```{r}
+datagg <- as.data.frame(cbind(edad=model.grupo@samples_metadata$edad[model.grupo@samples_metadata$grupo=="Female"],Factor1=get_factors(model.grupo,factors=1,scale = T,as.data.frame = T,groups = "Female")$value))
+
+  obesidad<-as.factor(model.grupo@samples_metadata$obesidad[model.grupo@samples_metadata$grupo=="Female"])
+  p1<-ggplot(datagg,aes(x=edad, y=Factor1)) +
+     geom_hline(yintercept = 0, color = "gray70") +
+     geom_vline(xintercept = 0, color = "gray70") +
+     geom_point(aes(color = obesidad), alpha = 0.55, size = 3) +     scale_color_manual(values=c("black","red"))+ggtitle("Factor 1 Female edad")+coord_cartesian(xlim = c(min(datagg[,1]),max(datagg[,1]))) 
+  
+ datagg <- as.data.frame(cbind(WC=model.grupo@samples_metadata$WC[model.grupo@samples_metadata$grupo=="Female"],Factor1=get_factors(model.grupo,factors=1,scale = T,as.data.frame = T,groups = "Female")$value))
+
+  obesidad<-as.factor(model.grupo@samples_metadata$obesidad[model.grupo@samples_metadata$grupo=="Female"])
+  p2<-ggplot(datagg,aes(x=WC, y=Factor1)) +
+     geom_hline(yintercept = 0, color = "gray70") +
+     geom_vline(xintercept = 0, color = "gray70") +
+     geom_point(aes(color = obesidad), alpha = 0.55, size = 3) +     scale_color_manual(values=c("black","red"))+ggtitle("Factor 1 Female WC")+coord_cartesian(xlim = c(min(datagg[,1]),max(datagg[,1]))) 
+  
+ datagg <- as.data.frame(cbind(BMI=model.grupo@samples_metadata$BMI[model.grupo@samples_metadata$grupo=="Female"],Factor1=get_factors(model.grupo,factors=1,scale = T,as.data.frame = T,groups = "Female")$value))
+
+  obesidad<-as.factor(model.grupo@samples_metadata$obesidad[model.grupo@samples_metadata$grupo=="Female"])
+  p3<-ggplot(datagg,aes(x=BMI, y=Factor1)) +
+     geom_hline(yintercept = 0, color = "gray70") +
+     geom_vline(xintercept = 0, color = "gray70") +
+     geom_point(aes(color = obesidad), alpha = 0.55, size = 3) +     scale_color_manual(values=c("black","red"))+ggtitle("Factor 1 Female BMI")+coord_cartesian(xlim = c(min(datagg[,1]),max(datagg[,1]))) 
+  
+  datagg <- as.data.frame(cbind(E2=model.grupo@samples_metadata$E2[model.grupo@samples_metadata$grupo=="Female"],Factor1=get_factors(model.grupo,factors=1,scale = T,as.data.frame = T,groups = "Female")$value))
+
+  obesidad<-as.factor(model.grupo@samples_metadata$obesidad[model.grupo@samples_metadata$grupo=="Female"])
+  p4<-ggplot(datagg,aes(x=E2, y=Factor1)) +
+     geom_hline(yintercept = 0, color = "gray70") +
+     geom_vline(xintercept = 0, color = "gray70") +
+     geom_point(aes(color = obesidad), alpha = 0.55, size = 3) +     scale_color_manual(values=c("black","red"))+ggtitle("Factor 1 Female E2")+coord_cartesian(xlim = c(min(datagg[,1]),max(datagg[,1]))) 
+  
+  
+
+ggarrange(p1,p2,p3,p4,ncol=2,nrow=2)
+```
+
+### CORRELACION COVARIABLES HOMBRES
+
+```{r}
+correlate_factors_with_covariates(model.grupo, 
+  covariates = c("obesidad","edad","BMI","WC","WHR","SHGB","hsCRP","TE2","E2"), 
+  plot="log_pval",groups = "PCOS"
+)
+```
+
+
+```{r}
+datagg <- as.data.frame(cbind(E2=model.grupo@samples_metadata$E2[model.grupo@samples_metadata$grupo=="PCOS"],Factor1=get_factors(model.grupo,factors=1,scale = T,as.data.frame = T,groups = "PCOS")$value))
+
+  obesidad<-as.factor(model.grupo@samples_metadata$obesidad[model.grupo@samples_metadata$grupo=="PCOS"])
+  p1<-ggplot(datagg,aes(x=E2, y=Factor1)) +
+     geom_hline(yintercept = 0, color = "gray70") +
+     geom_vline(xintercept = 0, color = "gray70") +
+     geom_point(aes(color = obesidad), alpha = 0.55, size = 3) +     scale_color_manual(values=c("black","red"))+ggtitle("Factor 1 PCOS E2")+coord_cartesian(xlim = c(min(datagg[,1]),max(datagg[,1]))) 
+  
+ datagg <- as.data.frame(cbind(WC=model.grupo@samples_metadata$WC[model.grupo@samples_metadata$grupo=="PCOS"],Factor1=get_factors(model.grupo,factors=1,scale = T,as.data.frame = T,groups = "PCOS")$value))
+
+  obesidad<-as.factor(model.grupo@samples_metadata$obesidad[model.grupo@samples_metadata$grupo=="PCOS"])
+  p2<-ggplot(datagg,aes(x=WC, y=Factor1)) +
+     geom_hline(yintercept = 0, color = "gray70") +
+     geom_vline(xintercept = 0, color = "gray70") +
+     geom_point(aes(color = obesidad), alpha = 0.55, size = 3) +     scale_color_manual(values=c("black","red"))+ggtitle("Factor 1 PCOS WC")+coord_cartesian(xlim = c(min(datagg[,1]),max(datagg[,1]))) 
+  
+ datagg <- as.data.frame(cbind(BMI=model.grupo@samples_metadata$BMI[model.grupo@samples_metadata$grupo=="PCOS"],Factor1=get_factors(model.grupo,factors=1,scale = T,as.data.frame = T,groups = "PCOS")$value))
+
+  obesidad<-as.factor(model.grupo@samples_metadata$obesidad[model.grupo@samples_metadata$grupo=="PCOS"])
+  p3<-ggplot(datagg,aes(x=BMI, y=Factor1)) +
+     geom_hline(yintercept = 0, color = "gray70") +
+     geom_vline(xintercept = 0, color = "gray70") +
+     geom_point(aes(color = obesidad), alpha = 0.55, size = 3) +     scale_color_manual(values=c("black","red"))+ggtitle("Factor 1 PCOS BMI")+coord_cartesian(xlim = c(min(datagg[,1]),max(datagg[,1]))) 
+  
+
+   datagg <- as.data.frame(cbind(hsCRP=model.grupo@samples_metadata$hsCRP[model.grupo@samples_metadata$grupo=="PCOS"],Factor1=get_factors(model.grupo,factors=1,scale = T,as.data.frame = T,groups = "PCOS")$value))
+
+  obesidad<-as.factor(model.grupo@samples_metadata$obesidad[model.grupo@samples_metadata$grupo=="PCOS"])
+  p4<-ggplot(datagg,aes(x=hsCRP, y=Factor1)) +
+     geom_hline(yintercept = 0, color = "gray70") +
+     geom_vline(xintercept = 0, color = "gray70") +
+     geom_point(aes(color = obesidad), alpha = 0.55, size = 3) +     scale_color_manual(values=c("black","red"))+ggtitle("Factor 1 PCOS hsCRP")+coord_cartesian(xlim = c(min(datagg[,1]),max(datagg[,1]))) 
+  
+ggarrange(p1,p2,p3,p4,ncol=2,nrow=2)
+```
+### METABOLOMA
+
+```{r}
+features <-MOFA2::features_metadata(model.grupo)
+feat.meta <- features[features$view=="metaboloma","feature"]
+p <-plot_top_weights(model.grupo,view = 1,factors="all")
+top_weights <-as.character(unique(p$data$feature[abs(p$data$value)>=0.5]))
+
+MOFA2::plot_variance_explained_per_feature(model.grupo,view=1,features = top_weights,split_by_factor = T,factors=c(1,2))
+
+```
+
+
+
+```{r}
+plot_data_scatter(model.grupo,features = top_weights,color_by = "obesidad",groups = "PCOS",factor = c(1))
+```
+```{r}
+plot_data_scatter(model.grupo,features = top_weights,color_by = "obesidad",groups = "Female",factor = c(1))
+```
+
+```{r}
+plot_top_weights(model.grupo,view = 1,factors=c(1,2))
+```
+
+```{r}
+datagg <- as.data.frame(cbind(Factor=get_factors(model.grupo,groups = "Male",factors = 1,scale = T,as.data.frame = T)$value,Males=1:length(which(model.grupo@samples_metadata$grupo=="Male"))))
+obesidad <- model.grupo@samples_metadata$obesidad[model.grupo@samples_metadata$group=="Male"]
+p1<-ggplot(datagg,aes(x=Males, y=Factor)) +
+     geom_hline(yintercept = 0, color = "gray70") +
+     geom_vline(xintercept = 0, color = "gray70") +
+     geom_point(aes(color = obesidad), alpha = 0.55, size = 3) +     scale_color_manual(values=c("black","red"))+ggtitle("Factor 1 Male ")+coord_cartesian(xlim = c(min(datagg[,2]),max(datagg[,2])))
+```
+
+
+```{r}
+datagg <- as.data.frame(cbind(Factor=get_factors(model.grupo,groups = "Female",factors = 1,scale = T,as.data.frame = T)$value,Females=1:length(which(model.grupo@samples_metadata$grupo=="Female"))))
+obesidad <- model.grupo@samples_metadata$obesidad[model.grupo@samples_metadata$group=="Female"]
+p2<-ggplot(datagg,aes(x=Females, y=Factor)) +
+     geom_hline(yintercept = 0, color = "gray70") +
+     geom_vline(xintercept = 0, color = "gray70") +
+     geom_point(aes(color = obesidad), alpha = 0.55, size = 3) +     scale_color_manual(values=c("black","red"))+ggtitle("Factor 1 Female ")+coord_cartesian(xlim = c(min(datagg[,2]),max(datagg[,2])))
+```
+
+
+```{r}
+datagg <- as.data.frame(cbind(Factor=get_factors(model.grupo,groups = "PCOS",factors = 1,scale = T,as.data.frame = T)$value,PCOS=1:length(which(model.grupo@samples_metadata$grupo=="PCOS"))))
+obesidad <- model.grupo@samples_metadata$obesidad[model.grupo@samples_metadata$group=="PCOS"]
+p3<-ggplot(datagg,aes(x=PCOS, y=Factor)) +
+     geom_hline(yintercept = 0, color = "gray70") +
+     geom_vline(xintercept = 0, color = "gray70") +
+     geom_point(aes(color = obesidad), alpha = 0.55, size = 3) +     scale_color_manual(values=c("black","red"))+ggtitle("Factor 1 PCOS ")+coord_cartesian(xlim = c(min(datagg[,2]),max(datagg[,2])))
+```
+
+
+### METAGENOMA
+
+```{r}
+p <-plot_top_weights(model.grupo,view = 2,factors="all")
+
+top_weights <-as.character(unique(p$data$feature[abs(p$data$value)>=0.5]))
+
+```
+
+```{r}
+features <-MOFA2::features_metadata(model.grupo)
+feat.meta <- features[features$view=="microbioma","feature"]
+MOFA2::plot_variance_explained_per_feature(model.grupo,view=2,features = top_weights,split_by_factor = T,factors = c(3,4))
+```
+
+```{r}
+plot_top_weights(model.grupo,view = 2,factors=c(3,4))
+```
+
+```{r}
+plot_data_scatter(model.grupo,factor=c(1),view=2,features =top_weights ,color_by = "obesidad",groups = "PCOS")
+```
+
+```{r}
+plot_data_scatter(model.grupo,factor=c(1),view=2,features =top_weights ,color_by = "obesidad",groups = "Female")
+```
+
+```{r}
+plot_data_scatter(model.grupo,factor=c(1),view=2,features =top_weights ,color_by = "obesidad",groups = "Male")
+```
+
+
+### INTERACCION METABOLOMA-METAGENOMA
+
+```{r}
+metaboloma.males <- model.grupo@data$metaboloma$Male
+metaboloma.females <- model.grupo@data$metaboloma$Female
+metaboloma.pcos <- model.grupo@data$metaboloma$PCOS
+
+metagenoma.males <- model.grupo@data$microbioma$Male
+metagenoma.females <- model.grupo@data$microbioma$Female
+metagenoma.pcos <- model.grupo@data$microbioma$PCOS
+
+```
+
+```{r}
+metaboloma <- t(cbind(metaboloma.males,
+                      metaboloma.females,
+                      metaboloma.pcos))
+metagenoma <- t(cbind(metagenoma.males,
+                      metagenoma.females,
+                      metagenoma.pcos))
+
+datos_in <- as.data.frame(cbind(metaboloma,metagenoma))
+```
+
+```{r}
+rownames(datos_in)
+variables_integracion <- data.frame(grupo=rep(NA,nrow(datos_in)),obesidad=rep(NA,nrow(datos_in)))
+variables_integracion$grupo <- ifelse(grepl("^M",rownames(datos_in),ignore.case = T),"Female",variables_integracion$grupo)
+variables_integracion$grupo <- ifelse(grepl("^P",rownames(datos_in),ignore.case = T),"PCOS",variables_integracion$grupo)
+variables_integracion$grupo <- ifelse(grepl("^V",rownames(datos_in),ignore.case = T),"Male",variables_integracion$grupo)
+
+variables_integracion$obesidad <- ifelse(grepl("^[MPV]O",rownames(datos_in),ignore.case = T),"Obese",variables_integracion$obesidad)
+variables_integracion$obesidad <- ifelse(grepl("^[MPV]d",rownames(datos_in),ignore.case = T),"No.Obese",variables_integracion$obesidad)
+
+
+variables_integracion$grupo <- as.factor(variables_integracion$grupo)
+variables_integracion$obesidad <- as.factor(variables_integracion$obesidad)
+
+variables_integracion$pacientes <- rownames(datos_in)
+```
+
+```{r}
+
+
+datos.out <- fn.explore2(datos_in,variables_integracion)
+
+```
+
+
+```{r}
+p <-plot_top_weights(model.grupo,view =1,factors="all",scale = T)
+q <-plot_top_weights(model.grupo,view = 2,factors="all",scale = T)
+
+top_weights.metaboloma <-as.character(unique(p$data$feature[abs(p$data$value)>=0.4]))
+top_weights.metagenoma <-as.character(unique(q$data$feature[abs(q$data$value)>=0.65]))
+top_pesos.names <- unique(c(top_weights.metaboloma,top_weights.metagenoma))
+top_pesos.names
+```
+
+```{r}
+obesos2 <- fn.cor.res2(datos.out$obesos[rownames(datos.out$obesos) %in% variables_integracion[variables_integracion$grupo!="PCOS","pacientes"],]
+,datos.out$No.Obesos[rownames(datos.out$No.Obesos) %in% variables_integracion[variables_integracion$grupo!="PCOS","pacientes"],]
+,top_pesos.names = top_pesos.names,name1 = "Obese CONTROL",name2 = "No Obese CONTROL")
+obesos2
+```
+
+```{r}
+obesos2 <- fn.cor.res2(datos.out$obesos
+,datos.out$No.Obesos
+,top_pesos.names = top_pesos.names,name1 = "Obese",name2 = "No Obese")
+obesos2
+```
+
+
+```{r}
+obesos2 <- fn.cor.res2(datos.out$pcos.no.obese,datos.out$pcos.obese,top_pesos.names = top_pesos.names,name1 = "PCOS No Obese",name2 = "PCOS Obese")
+obesos2
+
+```
+
+```{r}
+interaccion<-factor(paste(obesidad,grupo,sep="_"))
+
+g.cor  <- list()
+combi <- t(combn(levels(interaccion),2))
+interes <- interaccion
+lista_in <- list(No.Obese_Female=datos.out$females.no.obese,
+                 No.Obese_Male=datos.out$males.no.obese,
+                 No.Obese_PCOS=datos.out$pcos.no.obese,
+                 Obese_Female=datos.out$females.obese,
+                 Obese_Male=datos.out$males.obese,
+                 Obese_PCOS=datos.out$pcos.obese)
+pvals <- matrix(NA,nrow=dim(combi)[1],ncol=4)
+for(i in 1:dim(combi)[1]){
+  
+  combi_i <- combi[i,]
+  pvals[i,] <-fn.cor.res2(lista_in[[combi_i[1]]],lista_in[[combi_i[[2]]]],top_pesos.names = top_pesos.names,name1 = combi_i[1],name2=combi_i[2])
+  
+  
+}
+```
+
+```{r}
+pvals <- as.data.frame(pvals)
+colnames(pvals) <- c("cortest","manteltest","wilcox","corval")
+rownames(pvals) <- apply(combi, 1, function(x) paste(x,collapse = "_vs_"))
+
+pvals.on <- pvals[,-4]
+(pvals.adj <- cbind(round(apply(pvals.on, 2, function(x) p.adjust(x,method = "bonferroni")),4),cor=pvals[,4]))
+```
+
+
+```{r}
+pvals.adj[pvals.adj[,2]<0.05,]
+```
+
+
+
+```{r}
+
+g.cor  <- list()
+combi <- t(combn(levels(grupo),2))
+interes <- grupo
+lista_in <- list(Female=datos.out$females,
+                 Male=datos.out$males,
+                 PCOS=datos.out$pcos)
+pvals <- matrix(NA,nrow=dim(combi)[1],ncol=4)
+for(i in 1:dim(combi)[1]){
+  
+  combi_i <- combi[i,]
+  pvals[i,] <-fn.cor.res2(lista_in[[combi_i[1]]],lista_in[[combi_i[[2]]]],top_pesos.names = top_pesos.names,name1 = combi_i[1],name2=combi_i[2])
+  
+  
+}
+```
+
+```{r}
+pvals <- as.data.frame(pvals)
+colnames(pvals) <- c("cortest","manteltest","wilcox","corval")
+rownames(pvals) <- apply(combi, 1, function(x) paste(x,collapse = "_vs_"))
+
+pvals.on <- pvals[,-4]
+(pvals.adj <- cbind(round(apply(pvals.on, 2, function(x) p.adjust(x,method = "bonferroni")),4),cor=pvals[,4]))
+```
+
+
+```{r}
+pvals.adj[pvals.adj[,2]<0.05,]
+```
+
+
+### DIMRED
+```{r}
+## males
+factors <- get_factors(model.grupo, as.data.frame = T,scale = T,groups = "Male")
+
+weights <- rbind(get_weights(model.grupo,as.data.frame=T,scale=T,views="metaboloma"),
+                 get_weights(model.grupo,as.data.frame=T,scale=T,views="microbioma"))
+                 
+factores.recast <-as.data.frame(reshape2::recast(data=factors,sample~factor))
+rownames(factores.recast) <- factores.recast$sample
+factores.recast <- factores.recast[,c(2,3,4,5)]
+weights.recast <-as.data.frame(reshape2::recast(data=weights,feature~factor))
+rownames(weights.recast) <- weights.recast$feature
+weights.recast <- weights.recast[,c(2,3,4,5)]
+weights.recast$views <- c(rep("metaboloma",37),rep("microbioma",94))
+Y.males <-(as.matrix(factores.recast) %*% t(weights.recast[,-ncol(weights.recast)]))
+## females
+factors <- get_factors(model.grupo, as.data.frame = T,scale = F,groups = "Female")
+
+weights <- rbind(get_weights(model.grupo,as.data.frame=T,scale=F,views="metaboloma"),
+                 get_weights(model.grupo,as.data.frame=T,scale=F,views="microbioma"))
+                 
+factores.recast <-as.data.frame(reshape2::recast(data=factors,sample~factor))
+rownames(factores.recast) <- factores.recast$sample
+factores.recast <- factores.recast[,c(2,3,4,5)]
+weights.recast <-as.data.frame(reshape2::recast(data=weights,feature~factor))
+rownames(weights.recast) <- weights.recast$feature
+weights.recast <- weights.recast[,c(2,3,4,5)]
+weights.recast$views <- c(rep("metaboloma",37),rep("microbioma",94))
+Y.females <-(as.matrix(factores.recast) %*% t(weights.recast[,-ncol(weights.recast)]))
+## pcos
+factors <- get_factors(model.grupo, as.data.frame = T,scale = F,groups = "PCOS")
+
+weights <- rbind(get_weights(model.grupo,as.data.frame=T,scale=F,views="metaboloma"),
+                 get_weights(model.grupo,as.data.frame=T,scale=F,views="microbioma"))
+                 
+factores.recast <-as.data.frame(reshape2::recast(data=factors,sample~factor))
+rownames(factores.recast) <- factores.recast$sample
+factores.recast <- factores.recast[,c(2,3,4,5)]
+weights.recast <-as.data.frame(reshape2::recast(data=weights,feature~factor))
+rownames(weights.recast) <- weights.recast$feature
+weights.recast <- weights.recast[,c(2,3,4,5)]
+weights.recast$views <- c(rep("metaboloma",37),rep("microbioma",94))
+Y.PCOS <-(as.matrix(factores.recast) %*% t(weights.recast[,-ncol(weights.recast)]))
+
+```
+
+
+
+```{r}
+## males
+pcy <- prcomp((Y.males),scale. = F)
+varianzas <- 100*(pcy$sdev^2/sum(pcy$sdev^2))
+datos <- as.data.frame(bind_cols(pcy$x[,1:2]))
+obesidad<-variables_integracion[variables_integracion$grupo == "Male","obesidad"]
+  p1<-ggplot(datos,aes(x=PC1, y=PC2)) +
+     geom_hline(yintercept = 0, color = "gray70") +
+     geom_vline(xintercept = 0, color = "gray70") +
+     geom_point(aes(color = obesidad), alpha = 0.55, size = 3) +
+     coord_cartesian(xlim = c(min(datos[,1]),max(datos[,1]))) +
+     scale_color_manual(values=c("black","red"))+xlab(paste("PC1",round(varianzas[1],2),"%"))+ylab(paste("PC2",round(varianzas[2],2),"%"))+ggtitle("Restore PCA Males")
+  
+  
+  ## PCOS 
+  pcy <- prcomp((Y.PCOS),scale. = F)
+varianzas <- 100*(pcy$sdev^2/sum(pcy$sdev^2))
+datos <- as.data.frame(bind_cols(pcy$x[,1:2]))
+obesidad<-variables_integracion[variables_integracion$grupo == "PCOS","obesidad"]
+  p2<-ggplot(datos,aes(x=PC1, y=PC2)) +
+     geom_hline(yintercept = 0, color = "gray70") +
+     geom_vline(xintercept = 0, color = "gray70") +
+     geom_point(aes(color = obesidad), alpha = 0.55, size = 3) +
+     coord_cartesian(xlim = c(min(datos[,1]),max(datos[,1]))) +
+     scale_color_manual(values=c("black","red"))+xlab(paste("PC1",round(varianzas[1],2),"%"))+ylab(paste("PC2",round(varianzas[2],2),"%"))+ggtitle("Restore PCA PCOS")
+
+p1
+p2
+```
+
+
+```{r}
+## females 
+  pcy <- prcomp((Y.females),scale. = F)
+varianzas <- 100*(pcy$sdev^2/sum(pcy$sdev^2))
+datos <- as.data.frame(bind_cols(pcy$x[,1:2]))
+obesidad<-variables_integracion[variables_integracion$grupo == "Female","obesidad"]
+  p3<-ggplot(datos,aes(x=PC1, y=PC2)) +
+     geom_hline(yintercept = 0, color = "gray70") +
+     geom_vline(xintercept = 0, color = "gray70") +
+     geom_point(aes(color = obesidad), alpha = 0.55, size = 3) +
+     coord_cartesian(xlim = c(min(datos[,1]),max(datos[,1]))) +
+     scale_color_manual(values=c("black","red"))+xlab(paste("PC1",round(varianzas[1],2),"%"))+ylab(paste("PC2",round(varianzas[2],2),"%"))+ggtitle("Restore PCA Females")
+p3
+```
+
+
+```{r}
+## females
+pcy <- prcomp((Y.males),scale. = F)
+varianzas <- 100*(pcy$sdev^2/sum(pcy$sdev^2))
+p2 <-plot.methods2(factores = pcy$x[,1:2],datos.common = datos.common[variables_in_bacteria$OBESE=="No Obese",])+xlab(paste("PC1",round(varianzas[1],2),"%"))+ylab(paste("PC",round(varianzas[2],2),"%"))+ggtitle("Restore PCA Obese")
+## pcos
+pcy <- prcomp((Y.PCOS),scale. = F)
+varianzas <- 100*(pcy$sdev^2/sum(pcy$sdev^2))
+p2 <-plot.methods2(factores = pcy$x[,1:2],datos.common = datos.common[variables_in_bacteria$OBESE=="No Obese",])+xlab(paste("PC1",round(varianzas[1],2),"%"))+ylab(paste("PC",round(varianzas[2],2),"%"))+ggtitle("Restore PCA Obese")
+```
+
+
+```{r}
+Y.obese <- fun_restore(model.obesidad,"Obese")
+plot.methods3(Y.obese$factores[,1],datos.common = datos.common[datos.common$OBESE=="Obese",])
+Y.obese <- fun_restore(model.obesidad,"No.Obese")
+plot.methods3(Y.obese$factores[,1],datos.common = datos.common[datos.common$OBESE=="No Obese",])
+```
+
+
+### INTERACCION METABOLOMA-METAGENOMA G
+
+```{r}
+metagenoma.G <-matrix(t(logratio.transfo(t(genus.imput),logratio = "CLR")),ncol=ncol(genus.abs),nrow(genus.abs))
+rownames(metagenoma.G) <- variables_in_bacteria$Paciente
+colnames(metagenoma.G) <- colnames(genus.abs)
+metaboloma.O<-t(voom(met37_norm,normalize.method = "quantile",design = design)$E)
+
+```
+
+```{r}
+
+datos_in <- as.data.frame(bind_cols(metaboloma.O,metagenoma.G))
+rownames(datos_in) <- variables_in_bacteria$Paciente
+```
+
+```{r}
+rownames(datos_in)
+variables_integracion <- data.frame(grupo=rep(NA,nrow(datos_in)),obesidad=rep(NA,nrow(datos_in)))
+variables_integracion$grupo <- ifelse(grepl("^M",rownames(datos_in),ignore.case = T),"Female",variables_integracion$grupo)
+variables_integracion$grupo <- ifelse(grepl("^P",rownames(datos_in),ignore.case = T),"PCOS",variables_integracion$grupo)
+variables_integracion$grupo <- ifelse(grepl("^V",rownames(datos_in),ignore.case = T),"Male",variables_integracion$grupo)
+
+variables_integracion$obesidad <- ifelse(grepl("^[MPV]O",rownames(datos_in),ignore.case = T),"Obese",variables_integracion$obesidad)
+variables_integracion$obesidad <- ifelse(grepl("^[MPV]d",rownames(datos_in),ignore.case = T),"No.Obese",variables_integracion$obesidad)
+
+
+variables_integracion$grupo <- as.factor(variables_integracion$grupo)
+variables_integracion$obesidad <- as.factor(variables_integracion$obesidad)
+
+variables_integracion$pacientes <- rownames(datos_in)
+```
+
+```{r}
+
+
+datos.out <- fn.explore2(datos_in,variables_integracion)
+
+```
+
+
+```{r}
+p <-plot_top_weights(model.grupo,view =1,factors="all",scale = T)
+q <-plot_top_weights(model.grupo,view = 2,factors="all",scale = T)
+
+top_weights.metaboloma <-as.character(unique(p$data$feature[abs(p$data$value)>=0.4]))
+top_weights.metagenoma <-as.character(unique(q$data$feature[abs(q$data$value)>=0.65]))
+top_pesos.names <- unique(c(top_weights.metaboloma,top_weights.metagenoma))
+top_pesos.names
+```
+
+```{r}
+obesos2 <- fn.cor.res2(datos.out$obesos[rownames(datos.out$obesos) %in% variables_integracion[variables_integracion$grupo!="PCOS","pacientes"],]
+,datos.out$No.Obesos[rownames(datos.out$No.Obesos) %in% variables_integracion[variables_integracion$grupo!="PCOS","pacientes"],]
+,top_pesos.names = top_pesos.names,name1 = "Obese CONTROL",name2 = "No Obese CONTROL")
+obesos2
+```
+
+```{r}
+obesos2 <- fn.cor.res2(datos.out$obesos
+,datos.out$No.Obesos
+,top_pesos.names = top_pesos.names,name1 = "Obese",name2 = "No Obese")
+obesos2
+```
+
+
+```{r}
+obesos2 <- fn.cor.res2(datos.out$pcos.no.obese,datos.out$pcos.obese,top_pesos.names = top_pesos.names,name1 = "PCOS No Obese",name2 = "PCOS Obese")
+obesos2
+
+```
+
+```{r}
+interaccion<-factor(paste(obesidad,grupo,sep="_"))
+
+g.cor  <- list()
+combi <- t(combn(levels(interaccion),2))
+interes <- interaccion
+lista_in <- list(No.Obese_Female=datos.out$females.no.obese,
+                 No.Obese_Male=datos.out$males.no.obese,
+                 No.Obese_PCOS=datos.out$pcos.no.obese,
+                 Obese_Female=datos.out$females.obese,
+                 Obese_Male=datos.out$males.obese,
+                 Obese_PCOS=datos.out$pcos.obese)
+pvals <- matrix(NA,nrow=dim(combi)[1],ncol=4)
+for(i in 1:dim(combi)[1]){
+  
+  combi_i <- combi[i,]
+  pvals[i,] <-fn.cor.res2(lista_in[[combi_i[1]]],lista_in[[combi_i[[2]]]],top_pesos.names = top_pesos.names,name1 = combi_i[1],name2=combi_i[2])
+  
+  
+}
+```
+
+```{r}
+pvals <- as.data.frame(pvals)
+colnames(pvals) <- c("cortest","manteltest","wilcox","corval")
+rownames(pvals) <- apply(combi, 1, function(x) paste(x,collapse = "_vs_"))
+
+pvals.on <- pvals[,-4]
+(pvals.adj <- cbind(round(apply(pvals.on, 2, function(x) p.adjust(x,method = "bonferroni")),4),cor=pvals[,4]))
+```
+
+
+```{r}
+pvals.adj[pvals.adj[,2]<0.05,]
+```
+
+
+
+```{r}
+
+g.cor  <- list()
+combi <- t(combn(levels(grupo),2))
+interes <- grupo
+lista_in <- list(Female=datos.out$females,
+                 Male=datos.out$males,
+                 PCOS=datos.out$pcos)
+pvals <- matrix(NA,nrow=dim(combi)[1],ncol=4)
+for(i in 1:dim(combi)[1]){
+  
+  combi_i <- combi[i,]
+  pvals[i,] <-fn.cor.res2(lista_in[[combi_i[1]]],lista_in[[combi_i[[2]]]],top_pesos.names = top_pesos.names,name1 = combi_i[1],name2=combi_i[2])
+  
+  
+}
+```
+
+```{r}
+pvals <- as.data.frame(pvals)
+colnames(pvals) <- c("cortest","manteltest","wilcox","corval")
+rownames(pvals) <- apply(combi, 1, function(x) paste(x,collapse = "_vs_"))
+
+pvals.on <- pvals[,-4]
+(pvals.adj <- cbind(round(apply(pvals.on, 2, function(x) p.adjust(x,method = "bonferroni")),4),cor=pvals[,4]))
+```
+
+
+```{r}
+pvals.adj[pvals.adj[,2]<0.05,]
+```
+
+
+
+
+
+
+<!-- ### Intra Grupos grupo -->
+<!-- ```{r} -->
+<!-- set.seed(123) -->
+<!-- list.trained <- vector("list",length=length(seed)*mc.instances) -->
+<!-- i<-0 -->
+<!-- metaboloma<-(voom(met37_norm,normalize.method = "quantile",design = design)$E) -->
+
+<!-- for(s in seed){ -->
+<!-- for(mc.i in 1:mc.instances) { -->
+<!--   i<-i+1 -->
+<!--     t.input <- (sapply(mc.all, function(y) { -->
+<!--       y[, mc.i] -->
+<!--     })) -->
+
+<!--     genero <- t.input -->
+<!--     datos <- list(metaboloma=(metaboloma),microbioma=(genero)) -->
+<!--     MOFAobject <-create_mofa_from_matrix(datos,groups=as.factor(grupo)) -->
+<!--     samples_metadata(MOFAobject)<- data.frame(sample=pacientes,obesidad=(obesidad),grupo=(grupo),edad=Clin$EDAD,BMI=Clin$BMI,WC=Clin$WC,WHR=Clin$WHR,SHGB=Clin$SHBG,hsCRP=Clin$hsCRP,TE2=Clin$Total_ESTR,E2=Clin$Free_ESTRA,obesidad=as.numeric(obesidad),grupo=as.numeric(grupo),group=(grupo)) -->
+<!--   rownames(samples_metadata(MOFAobject))<-pacientes -->
+<!--   data_opts <- get_default_data_options(MOFAobject) -->
+<!--   data_opts$scale_views <-T -->
+<!--   model_opts <- get_default_model_options(MOFAobject) -->
+<!--   model_opts$likelihoods=c("gaussian","gaussian") -->
+<!--   model_opts$num_factors=15 -->
+<!--   head(model_opts) -->
+<!--   model_opts$spikeslab_factors<-F -->
+<!--   model_opts$ard_factors <-T -->
+<!--   train_opts <- get_default_training_options(MOFAobject) -->
+<!--   train_opts$seed <- s -->
+<!-- # outfile = file.path(getwd(),paste0(seq(1:10),"_model.hdf5")) -->
+<!--   MOFAobject <- prepare_mofa( -->
+<!--   object = MOFAobject, -->
+<!--   data_options = data_opts, -->
+<!--   model_options = model_opts, -->
+<!--   training_options = train_opts) -->
+<!--     outfile <- file.path(getwd(),"modelsMOFA_group",paste0("model_","seed_",s,"_instace_",mc.i,".hdf5")) -->
+<!--   reticulate::use_python("/usr/bin/python3.10") -->
+
+<!--   MOFAobject <- run_mofa(MOFAobject, outfile,use_basilisk = F) -->
+<!--   MOFAobject@covariates<-data.frame(obesidad=as.numeric(obesidad),grupo=as.numeric(grupo),edad=Clin$EDAD,BMI=Clin$BMI,WC=Clin$WC,WHR=Clin$WHR,SHGB=Clin$SHBG,hsCRP=Clin$hsCRP,TE2=Clin$Total_ESTR,E2=Clin$Free_ESTRA) -->
+
+<!-- } -->
+<!-- } -->
+<!-- ``` -->
+
+<!-- ### ### Intra Grupos obesidad -->
+
+<!-- ```{r} -->
+<!-- set.seed(123) -->
+<!-- seed <- sample(1000,10) -->
+<!-- list.trained <- vector("list",length=length(seed)*mc.instances) -->
+<!-- i<-0 -->
+<!-- metaboloma<-(voom(met37_norm,normalize.method = "quantile",design = design)$E) -->
+
+<!-- for(s in seed){ -->
+<!-- for(mc.i in 1:mc.instances) { -->
+<!--   i<-i+1 -->
+<!--     t.input <- (sapply(mc.all, function(y) { -->
+<!--       y[, mc.i] -->
+<!--     })) -->
+
+<!--     genero <- t.input -->
+<!--     datos <- list(metaboloma=(metaboloma),microbioma=(genero)) -->
+<!--     MOFAobject <-create_mofa_from_matrix(datos,groups=as.factor(obesidad)) -->
+<!--     samples_metadata(MOFAobject)<- data.frame(sample=pacientes,obesidad=(obesidad),grupo=(grupo),edad=Clin$EDAD,BMI=Clin$BMI,WC=Clin$WC,WHR=Clin$WHR,SHGB=Clin$SHBG,hsCRP=Clin$hsCRP,TE2=Clin$Total_ESTR,E2=Clin$Free_ESTRA,obesidad=as.numeric(obesidad),grupo=as.numeric(grupo),group=(obesidad)) -->
+<!--   rownames(samples_metadata(MOFAobject))<-pacientes -->
+<!--   data_opts <- get_default_data_options(MOFAobject) -->
+<!--   data_opts$scale_views <-T -->
+<!--   model_opts <- get_default_model_options(MOFAobject) -->
+<!--   model_opts$likelihoods=c("gaussian","gaussian") -->
+<!--   model_opts$num_factors=15 -->
+<!--   head(model_opts) -->
+<!--   model_opts$spikeslab_factors<-F -->
+<!--   model_opts$ard_factors <-T -->
+<!--   train_opts <- get_default_training_options(MOFAobject) -->
+<!--   train_opts$seed <- s -->
+<!-- # outfile = file.path(getwd(),paste0(seq(1:10),"_model.hdf5")) -->
+<!--   MOFAobject <- prepare_mofa( -->
+<!--   object = MOFAobject, -->
+<!--   data_options = data_opts, -->
+<!--   model_options = model_opts, -->
+<!--   training_options = train_opts) -->
+<!--     outfile <- file.path(getwd(),"modelsMOFA_obesidad/",paste0("model_","seed_",s,"_instace_",mc.i,".hdf5")) -->
+<!--   reticulate::use_python("/usr/bin/python3.10") -->
+
+<!--   MOFAobject <- run_mofa(MOFAobject, outfile,use_basilisk = F) -->
+<!--   MOFAobject@covariates<-data.frame(obesidad=as.numeric(obesidad),grupo=as.numeric(grupo),edad=Clin$EDAD,BMI=Clin$BMI,WC=Clin$WC,WHR=Clin$WHR,SHGB=Clin$SHBG,hsCRP=Clin$hsCRP,TE2=Clin$Total_ESTR,E2=Clin$Free_ESTRA) -->
+
+<!-- } -->
+<!-- } -->
+<!-- ``` -->
+```{r}
+//
+```
+
+### Intra grupos Interaccion
+
+```{r}
+set.seed(123)
+seed <- sample(1000,10)
+list.trained <- vector("list",length=length(seed)*mc.instances)
+i<-0
+metaboloma<-(voom(met37_norm,normalize.method = "quantile",design = design)$E)
+
+for(s in seed){
+for(mc.i in 1:mc.instances) {
+  i<-i+1
+    t.input <- (sapply(mc.all, function(y) {
+      y[, mc.i]
+    }))
+
+    genero <- t.input
+    datos <- list(metaboloma=(metaboloma),microbioma=(genero))
+    MOFAobject <-create_mofa_from_matrix(datos,groups=as.factor(interaccion))
+    samples_metadata(MOFAobject)<- data.frame(sample=pacientes,obesidad=(obesidad),grupo=(grupo),edad=Clin$EDAD,BMI=Clin$BMI,WC=Clin$WC,WHR=Clin$WHR,SHGB=Clin$SHBG,hsCRP=Clin$hsCRP,TE2=Clin$Total_ESTR,E2=Clin$Free_ESTRA,obesidad=as.numeric(obesidad),grupo=as.numeric(grupo),group=(interaccion))
+  rownames(samples_metadata(MOFAobject))<-pacientes
+  data_opts <- get_default_data_options(MOFAobject)
+  data_opts$scale_views <-T
+  model_opts <- get_default_model_options(MOFAobject)
+  model_opts$likelihoods=c("gaussian","gaussian")
+  model_opts$num_factors=15
+  head(model_opts)
+  model_opts$spikeslab_factors<-F
+  model_opts$ard_factors <-T
+  train_opts <- get_default_training_options(MOFAobject)
+  train_opts$seed <- s
+# outfile = file.path(getwd(),paste0(seq(1:10),"_model.hdf5"))
+  MOFAobject <- prepare_mofa(
+  object = MOFAobject,
+  data_options = data_opts,
+  model_options = model_opts,
+  training_options = train_opts)
+    outfile <- file.path(getwd(),"modelsMOFA_interaccion/",paste0("model_","seed_",s,"_instace_",mc.i,".hdf5"))
+  reticulate::use_python("/usr/bin/python3.10")
+
+  MOFAobject <- run_mofa(MOFAobject, outfile,use_basilisk = F)
+  MOFAobject@covariates<-data.frame(obesidad=as.numeric(obesidad),grupo=as.numeric(grupo),edad=Clin$EDAD,BMI=Clin$BMI,WC=Clin$WC,WHR=Clin$WHR,SHGB=Clin$SHBG,hsCRP=Clin$hsCRP,TE2=Clin$Total_ESTR,E2=Clin$Free_ESTRA)
+
+}
+}
+```
+
+
+
+### Intra Grupos grupo
+```{r}
+set.seed(123)
+list.trained <- vector("list",length=length(seed)*mc.instances)
+i<-0
+metaboloma<-(voom(met37_norm,normalize.method = "quantile",design = design)$E)
+
+for(s in seed){
+for(mc.i in 1:mc.instances) {
+  i<-i+1
+    t.input <- (sapply(mc.all, function(y) {
+      y[, mc.i]
+    }))
+
+    genero <- t.input
+    datos <- list(metaboloma=(metaboloma),microbioma=(genero))
+    MOFAobject <-create_mofa_from_matrix(datos,groups=as.factor(grupo))
+    samples_metadata(MOFAobject)<- data.frame(sample=pacientes,obesidad=(obesidad),grupo=(grupo),edad=Clin$EDAD,BMI=Clin$BMI,WC=Clin$WC,WHR=Clin$WHR,SHGB=Clin$SHBG,hsCRP=Clin$hsCRP,TE2=Clin$Total_ESTR,E2=Clin$Free_ESTRA,obesidad=as.numeric(obesidad),grupo=as.numeric(grupo),group=(grupo))
+  rownames(samples_metadata(MOFAobject))<-pacientes
+  data_opts <- get_default_data_options(MOFAobject)
+  data_opts$scale_views <-T
+  model_opts <- get_default_model_options(MOFAobject)
+  model_opts$likelihoods=c("gaussian","gaussian")
+  model_opts$num_factors=15
+  head(model_opts)
+  model_opts$spikeslab_factors<-F
+  model_opts$ard_factors <-T
+  train_opts <- get_default_training_options(MOFAobject)
+  train_opts$seed <- s
+# outfile = file.path(getwd(),paste0(seq(1:10),"_model.hdf5"))
+  MOFAobject <- prepare_mofa(
+  object = MOFAobject,
+  data_options = data_opts,
+  model_options = model_opts,
+  training_options = train_opts)
+    outfile <- file.path(getwd(),"modelsMOFA_group",paste0("model_","seed_",s,"_instace_",mc.i,".hdf5"))
+  reticulate::use_python("/usr/bin/python3.10")
+
+  MOFAobject <- run_mofa(MOFAobject, outfile,use_basilisk = F)
+  MOFAobject@covariates<-data.frame(obesidad=as.numeric(obesidad),grupo=as.numeric(grupo),edad=Clin$EDAD,BMI=Clin$BMI,WC=Clin$WC,WHR=Clin$WHR,SHGB=Clin$SHBG,hsCRP=Clin$hsCRP,TE2=Clin$Total_ESTR,E2=Clin$Free_ESTRA)
+
+}
+}
+```
+
+### ### Intra Grupos obesidad
+
+```{r}
+set.seed(123)
+seed <- sample(1000,10)
+list.trained <- vector("list",length=length(seed)*mc.instances)
+i<-0
+metaboloma<-(voom(met37_norm,normalize.method = "quantile",design = design)$E)
+
+for(s in seed){
+for(mc.i in 1:mc.instances) {
+  i<-i+1
+    t.input <- (sapply(mc.all, function(y) {
+      y[, mc.i]
+    }))
+
+    genero <- t.input
+    datos <- list(metaboloma=(metaboloma),microbioma=(genero))
+    MOFAobject <-create_mofa_from_matrix(datos,groups=as.factor(obesidad))
+    samples_metadata(MOFAobject)<- data.frame(sample=pacientes,obesidad=(obesidad),grupo=(grupo),edad=Clin$EDAD,BMI=Clin$BMI,WC=Clin$WC,WHR=Clin$WHR,SHGB=Clin$SHBG,hsCRP=Clin$hsCRP,TE2=Clin$Total_ESTR,E2=Clin$Free_ESTRA,obesidad=as.numeric(obesidad),grupo=as.numeric(grupo),group=(obesidad))
+  rownames(samples_metadata(MOFAobject))<-pacientes
+  data_opts <- get_default_data_options(MOFAobject)
+  data_opts$scale_views <-T
+  model_opts <- get_default_model_options(MOFAobject)
+  model_opts$likelihoods=c("gaussian","gaussian")
+  model_opts$num_factors=15
+  head(model_opts)
+  model_opts$spikeslab_factors<-F
+  model_opts$ard_factors <-T
+  train_opts <- get_default_training_options(MOFAobject)
+  train_opts$seed <- s
+# outfile = file.path(getwd(),paste0(seq(1:10),"_model.hdf5"))
+  MOFAobject <- prepare_mofa(
+  object = MOFAobject,
+  data_options = data_opts,
+  model_options = model_opts,
+  training_options = train_opts)
+    outfile <- file.path(getwd(),"modelsMOFA_obesidad/",paste0("model_","seed_",s,"_instace_",mc.i,".hdf5"))
+  reticulate::use_python("/usr/bin/python3.10")
+
+  MOFAobject <- run_mofa(MOFAobject, outfile,use_basilisk = F)
+  MOFAobject@covariates<-data.frame(obesidad=as.numeric(obesidad),grupo=as.numeric(grupo),edad=Clin$EDAD,BMI=Clin$BMI,WC=Clin$WC,WHR=Clin$WHR,SHGB=Clin$SHBG,hsCRP=Clin$hsCRP,TE2=Clin$Total_ESTR,E2=Clin$Free_ESTRA)
+
+}
+}
+```
+
+### Intra grupos Interaccion
+
+```{r}
+library(MOFA2)
+set.seed(123)
+seed <- sample(1000,10)
+list.trained <- vector("list",length=length(seed)*mc.instances)
+i<-0
+metaboloma<-(voom(met37_norm,normalize.method = "quantile",design = design)$E)
+
+for(s in seed){
+for(mc.i in 1:mc.instances) {
+  i<-i+1
+    t.input <- (sapply(mc.all, function(y) {
+      y[, mc.i]
+    }))
+
+    genero <- t.input
+    datos <- list(metaboloma=(metaboloma),microbioma=(genero))
+    MOFAobject <-create_mofa_from_matrix(datos,groups=as.factor(interaccion))
+    samples_metadata(MOFAobject)<- data.frame(sample=pacientes,obesidad=(obesidad),grupo=(grupo),edad=Clin$EDAD,BMI=Clin$BMI,WC=Clin$WC,WHR=Clin$WHR,SHGB=Clin$SHBG,hsCRP=Clin$hsCRP,TE2=Clin$Total_ESTR,E2=Clin$Free_ESTRA,obesidad=as.numeric(obesidad),grupo=as.numeric(grupo),group=(interaccion))
+  rownames(samples_metadata(MOFAobject))<-pacientes
+  data_opts <- get_default_data_options(MOFAobject)
+  data_opts$scale_views <-T
+  model_opts <- get_default_model_options(MOFAobject)
+  model_opts$likelihoods=c("gaussian","gaussian")
+  model_opts$num_factors=15
+  head(model_opts)
+  model_opts$spikeslab_factors<-F
+  model_opts$ard_factors <-T
+  train_opts <- get_default_training_options(MOFAobject)
+  train_opts$seed <- s
+# outfile = file.path(getwd(),paste0(seq(1:10),"_model.hdf5"))
+  MOFAobject <- prepare_mofa(
+  object = MOFAobject,
+  data_options = data_opts,
+  model_options = model_opts,
+  training_options = train_opts)
+    outfile <- file.path(getwd(),"modelsMOFA_interaccion/",paste0("model_","seed_",s,"_instace_",mc.i,".hdf5"))
+  reticulate::use_python("/usr/bin/python3.10")
+
+  MOFAobject <- run_mofa(MOFAobject, outfile,use_basilisk = F)
+  MOFAobject@covariates<-data.frame(obesidad=as.numeric(obesidad),grupo=as.numeric(grupo),edad=Clin$EDAD,BMI=Clin$BMI,WC=Clin$WC,WHR=Clin$WHR,SHGB=Clin$SHBG,hsCRP=Clin$hsCRP,TE2=Clin$Total_ESTR,E2=Clin$Free_ESTRA)
+
+}
+}
+```
+
+

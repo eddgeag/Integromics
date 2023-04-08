@@ -1,0 +1,1589 @@
+---
+title: Integration of omics and clinical data of the hormonal, metabolic, inflammatory,
+  and oxidative response in the different macronutrients of the diet
+author: "Edmond Geraud"
+subtitle: '`r params$subtitulo`'
+date: '`r format(Sys.Date(),"%e de %B, %Y")`' 
+output:
+  prettydoc::html_pretty:
+    theme: cayman
+    highlight: github
+    toc: true
+  html_document:
+    toc: true
+    toc_depth: 2
+header-includes:
+  - \usepackage[english]{babel}
+params:
+  
+  file_IP: Integromics_IPmarkers.xlsx
+  file_metabolome: Integromics_Metabolome.xlsx
+  file_general: Integromics_1.xlsx
+  file_microbiota : integromics_microbiota.xlsx
+  folder.data: ../../datos
+  subtitulo: FINAL RESULTS
+geometry: margin=2cm
+---
+
+```{r setup, include=FALSE}
+require(knitr)
+# include this code chunk as-is to set options
+opts_chunk$set(comment = NA, prompt = TRUE, tidy = T, 
+               fig.width = 7, fig.height = 7,echo = TRUE, 
+               message = FALSE, warning = FALSE, cache=TRUE, fig_caption = TRUE)
+Sys.setlocale("LC_TIME", "C")
+```
+
+## Load the libraries
+
+```{r libraries}
+
+list.of.packages <- c("xlsx","kableExtra","dplyr","ggplot2","egg","cowplot","patchwork","gridExtra","UsingR","car","lattice","ggpubr","ggbreak","GGally","reshape2","ggcorrplot","corrplot","rela","ggrepel","factoextra","chemometrics","sparsepca","vegan","ca","ade4","pls","OmicsPLS")
+new.packages <- list.of.packages[!(list.of.packages %in% installed.packages()[,"Package"])] ## check for packages not installed 
+if(length(new.packages)) install.packages(new.packages) ## install packages if necessary
+res<-unlist(lapply(list.of.packages, require,character.only = T)) ## load packages needed for the session
+if(any(res==F)){
+  list.of.packages[which(res==F)]  ## show those package if you have troubles to install.
+}
+
+list.of.bioc.packages <- c("phyloseq","pcaMethods","ropls","mixOmics")
+new.packages.bioc <- list.of.packages[!(list.of.bioc.packages %in% installed.packages()[,"Package"])]
+if(length(new.packages.bioc)) BiocManager::install(new.packages.bioc)
+res.bioc <- unlist(lapply(list.of.bioc.packages, require,character.only = T)) 
+if(any(res.bioc==F)){
+  list.of.packages[which(res.bioc==F)]  ## show those package if you have troubles to install.
+}
+```
+
+
+# Functions for loading data (microbiome)
+
+```{r}
+proces_bacteria <- function(datos,tipo){
+
+	Order <- bacteria_phylum.abs$Order
+	variables_in_bacteria <- general_data[general_data$Orden %in% Order , ]
+	Sample<-variables_in_bacteria$Paciente
+
+
+	if(tipo=="genera"){
+
+		Order <- Order
+
+		X <- datos[-1,-1]
+		X<-apply(X,2,as.numeric)
+		colnames(X) <- datos[1,2:ncol(datos)]
+		rownames(X) <- Sample
+		X.rel <- 100*X/rowSums(X)
+
+
+	} else if(tipo=="phylum"){
+
+		X <- datos[,-c(1:2)]
+		colnames(X) <- colnames(datos)[3:ncol(datos)]
+		rownames(X) <- Sample
+		X.rel<-100*X/rowSums(X)
+	}
+
+	GROUP <-variables_in_bacteria$GROUP
+	SEX <- variables_in_bacteria$SEX
+	OBESE<- variables_in_bacteria$OBESE
+
+	X<-as.data.frame(X)
+	X.rel<-as.data.frame(X.rel)
+
+	X$GROUP<-GROUP
+	X$SEX<-SEX
+	X$OBESE<-OBESE
+
+
+	X.rel$GROUP<-GROUP
+	X.rel$SEX<-SEX
+	X.rel$OBESE<-OBESE
+
+	return(list(abs=X,rel=X.rel))
+
+}
+
+
+low.count.removal = function(
+                        data, # OTU count data frame of size n (sample) x p (OTU)
+                        percent=0.01 # cutoff chosen
+                        ){
+    keep.otu = which(colSums(data)*100/(sum(colSums(data))) > percent)
+    data.filter = data[,keep.otu]
+    return(list(data.filter = data.filter, keep.otu = keep.otu))
+}
+
+relative.fn <-function(data){
+  
+  return(100*data/rowSums(data))
+  
+}
+
+
+```
+
+
+# Load the data
+
+## Clinical data.
+
+```{r}
+general_data <- read.xlsx(file.path(params$folder.data,params$file_general),sheetIndex =1)
+general_data$SEX <- factor(general_data$SEX, levels = c(0, 2), labels = c("Female", "Male"))
+general_data$OBESE <- factor(general_data$OBESE, levels = c(0, 1), labels = c("No Obese", "Obese"))
+general_data$GROUP <- factor(general_data$GROUP, levels = c(0, 1, 2), labels = c("Female",  "PCOS", "Male"))
+```
+
+## IP data.
+
+```{r}
+IP_file<-file.path(params$folder.data,file=params$file_IP) ## file path of the data
+IP.tmp<-read.xlsx(IP_file,sheetIndex = 1)
+IP<-IP.tmp[,-7] # remove the missin values column
+IP$SEX <- factor(IP$SEX,levels=c(0,2),labels = c("Female","Male"))
+IP$OBESE <- factor(IP$OBESE,levels=c(0,1),labels = c("No Obese","Obese"))
+IP$GROUP <- factor(IP$GROUP,levels=c(0,1,2),labels = c("Female","PCOS","Male"))
+```
+
+
+## Metabolome data
+
+```{r}
+metabolome_file<-file.path(params$folder.data,file=params$file_metabolome) ## file path of the data
+metabolome.tmp<-read.xlsx(metabolome_file,sheetIndex = 1) # read the data
+metabolites_name <- read.xlsx(metabolome_file,sheetIndex = 2)$Metabolitos # read the names of the metabolites
+any(is.na(metabolome.tmp)) # there is a row of missing values.
+metabolome<-metabolome.tmp[-nrow(metabolome.tmp),] ## remove the missing value row
+metabolome$GROUP<-general_data$GROUP ## add GROUP variable 
+metabolome$OBESE <- general_data$OBESE ## add OBESE variables.
+```
+
+## Microbiome data.
+
+```{r}
+bacteria_phylum.abs <- as.data.frame(read.xlsx(file.path(params$folder.data,params$file_microbiota), sheetIndex = 1))
+bacteria_genera.abs <- as.data.frame(t(read.xlsx(file.path(params$folder.data,params$file_microbiota), sheetIndex = 3)))
+phylum.list <- proces_bacteria(bacteria_phylum.abs,tipo="phylum")
+genera.list <- proces_bacteria(bacteria_genera.abs,tipo="genera")
+
+phylum.abs <- phylum.list$abs;phylum.rel<-phylum.list$rel
+genera.abs <- genera.list$abs;genera.rel<-genera.list$rel
+```
+
+
+# Preprocess data according to the microbiome.
+
+Because we have less subjects on the microbiome, and we have phylum and genera with variables with no records across all samples, we have to clean that.
+
+Furthermore, we have to take care only the basal levels across all blocks. Also we have to clean the data on the metabolome, IP for repeated variables.
+
+```{r}
+variables_in_bacteria <- general_data[general_data$Orden %in% bacteria_phylum.abs$Order, ]
+```
+
+Because, we only take care of the GROUP, and OBESE variables on the analysis, we can get rid off this variables and store them apart in a new object. Furthermore, we have to have the same names for the rows, so let's keep it in another object.
+
+```{r}
+sujetos <- variables_in_bacteria$Paciente
+GROUP <- variables_in_bacteria$GROUP
+OBESE <- variables_in_bacteria$OBESE
+interaccion <-with(variables_in_bacteria,interaction(GROUP,OBESE))
+```
+
+## Clinical data.
+
+**NOTE we are going to include also on both levels of integration body measures**
+We exclude ISI because it is measured after the load of glucose, the mean values, to exclude redundancy of the data, ant the postprandial levels. 
+
+```{r}
+sujetos <- variables_in_bacteria$Paciente
+Clin.tmp <- variables_in_bacteria[,-c(1,2,3,4,5)] # get rid off orden, paciente, sex, group and obese
+auc_clin <- colnames(Clin.tmp)[grep("AUC",colnames(Clin.tmp))]
+mean_basal_clin<-colnames(Clin.tmp)[grep("_B$",colnames(Clin.tmp))]
+sog <- colnames(Clin.tmp)[grep("^SO[GLP]",colnames(Clin.tmp))]
+variables_clin <- colnames(Clin.tmp)
+testosterona <-colnames(Clin.tmp)[grep("TEST",colnames(Clin.tmp))]
+interr<-colnames(Clin.tmp)[grep("interaccion",colnames(Clin.tmp))]
+ratio <- colnames(Clin.tmp)[grep("Ratio",colnames(Clin.tmp))]
+w<-c(which(variables_clin %in% auc_clin),which(variables_clin %in% mean_basal_clin),which(variables_clin %in% sog),which(variables_clin %in% testosterona),
+which(variables_clin %in% interr),which(variables_clin %in% ratio))
+Clin <- Clin.tmp[,-w] 
+rownames(Clin) <- sujetos
+colnames(Clin)
+```
+
+
+## IP data
+
+```{r}
+IP.tmp <- IP[IP$Paciente %in% variables_in_bacteria$Paciente,]
+redundant_variables <- c("Orden","Paciente","SEX","GROUP","OBESE","BMI")
+variables_ip <- colnames(IP.tmp)
+auc_ip <- variables_ip[grep("AUC",variables_ip)]
+mean_ip <- variables_ip[grep("_0$",variables_ip)]
+w <- c(which(variables_ip %in% redundant_variables),which(variables_ip %in% auc_ip),which(variables_ip %in% mean_ip))
+IP.basal <- IP.tmp[,-w]
+rownames(IP.basal) <- sujetos
+```
+
+## Metabolome data.
+
+```{r}
+metabolome.basal.tmp <- metabolome[metabolome$Order %in% variables_in_bacteria$Orden,]
+redundant_data_meta <- c("Order","Sample","GROUP","OBESE")
+variables_meta <- colnames(metabolome.basal.tmp)
+mean_meta <- variables_meta[grep("_[GLP]0$",variables_meta)]
+auc_meta <- variables_meta[grep("AU[CG]",variables_meta)]
+w <- c(which(variables_meta %in% redundant_data_meta),which(variables_meta %in% mean_meta),which(variables_meta %in% auc_meta))
+metabolome.basal <- metabolome.basal.tmp[,-w]
+rownames(metabolome.basal) <- sujetos
+colnames(metabolome.basal)
+```
+
+## Microbiome data.
+
+### Phylum.
+
+```{r}
+phylum.abs.tmp <- phylum.abs
+redundant_data_ph <- c("GROUP","SEX","OBESE")
+phylum.tmp <- phylum.abs.tmp[,-c(ncol(phylum.abs.tmp)-2,ncol(phylum.abs.tmp)-1,ncol(phylum.abs.tmp))]
+phylum <- phylum.tmp[,colSums(phylum.tmp)>0]
+rownames(phylum) <- sujetos
+## removal of unidentified phyla
+phylum<-phylum[,-grep("^ud",colnames(phylum))]
+
+colnames(phylum)
+```
+
+### Genus
+
+```{r}
+genera.abs.tmp <- genera.abs
+redundant_data_ph <- c("GROUP","SEX","OBESE")
+genus.tmp.tmp <- genera.abs.tmp[,-c(ncol(genera.abs.tmp)-2,ncol(genera.abs.tmp)-1,ncol(genera.abs.tmp))]
+genus <- genus.tmp.tmp[,colSums(genus.tmp.tmp)>0]
+rownames(genus) <- sujetos
+## removal of genus unidentified
+
+genus<-genus[,-grep("^ud-",colnames(genus))]
+colnames(genus)
+```
+
+
+## Pretreatment of microbiome data.
+
+```{r}
+genus.offset<-genus+1
+phylum.offset<-phylum+1
+sum(which(genus.offset == 0))
+
+
+result.filter.genus <- low.count.removal(genus.offset, percent=0.001)
+result.filter.phylum<- low.count.removal(phylum.offset, percent=0.001)
+
+genus.filter <- result.filter.genus$data.filter
+phylum.filter <- result.filter.phylum$data.filter
+
+# length(result.filter$keep.otu) 
+lib.size.genus <- apply(genus.filter, 1, sum)
+lib.size.phylum <- apply(phylum.filter,1,sum)
+par(mfrow=c(1,2))
+barplot(lib.size.genus)
+barplot(lib.size.phylum)
+
+
+genus.clr <- logratio.transfo(as.matrix(genus.filter), logratio = 'CLR', offset = 0)
+genus.rel <- relative.fn(genus)
+
+
+phylum.clr <- logratio.transfo(as.matrix(phylum.filter), logratio = 'CLR', offset = 0) 
+phylum.rel <- relative.fn(phylum)
+```
+
+```{r}
+names(w2)<-levels(interaccion)
+for(i in 1:6){
+ w2[[names(w2)[i]]]<-which(apply(as.matrix(genera.abs[
+  rownames(genera.abs)%in%
+    variables_in_bacteria[variables_in_bacteria$interaccion==grupo[i],"Paciente"],-c(grep("^ud-",colnames(genera.abs)),285,284,283)]),2,function(x) sum(x)>0))
+}
+
+datos <- list(clinical_data = as.matrix(Clin),
+              IP =as.matrix(IP.basal),
+              metabolome = as.matrix(metabolome.basal),
+              microbiome = as.matrix(genus.clr))
+```
+
+
+
+# Total ingeration mean basal values
+
+```{r}
+# Clin<-Clin[,-grep("Ratio",colnames(Clin))]
+datos <- list(clinical_data = as.matrix(Clin),
+              IP =as.matrix(IP.basal),
+              metabolome = as.matrix(metabolome.basal),
+              microbiome = as.matrix(scale(genus.clr)))
+# salvar <- list(datos=datos,variables=variables_in_bacteria)
+# save(salvar,file="datos.RData")
+res1.pls.met_micro <- mixOmics::pls(datos$metabolome,datos$microbiome,ncomp=1)
+(rho_met_micro <- cor(res1.pls.met_micro$variates$X,res1.pls.met_micro$variates$Y))
+
+res1.pls.met_IP <- mixOmics::pls(datos$IP,datos$metabolome,ncomp = 1)
+(rho_met_ip <- cor(res1.pls.met_IP$variates$X,res1.pls.met_IP$variates$Y))
+
+res1.pls.met_clin <- mixOmics::pls(datos$metabolome,datos$clinical_data,ncomp=1)
+(rho_pls_met_clin <- cor(res1.pls.met_clin$variates$X,res1.pls.met_clin$variates$Y))
+
+res1.pls_micro_clin <- mixOmics::pls(datos$microbiome,datos$clinical_data,ncomp=1)
+(rho_pls_micro_clin <- cor(res1.pls_micro_clin$variates$X,res1.pls_micro_clin$variates$Y))
+
+res1.pls_micro_IP <- mixOmics::pls(datos$microbiome,datos$IP,ncomp = 1)
+(rho_pls_micro_IP <- cor(res1.pls_micro_IP$variates$X,res1.pls_micro_IP$variates$Y))
+
+res1.pls_IP_clin <- mixOmics::pls(datos$IP,datos$clinical_data,ncomp = 1)
+(rho_pls_IP_clin <- cor(res1.pls_IP_clin$variates$X,res1.pls_IP_clin$variates$Y))
+
+design =matrix(c(0,rho_pls_IP_clin,rho_pls_met_clin,rho_pls_micro_clin,
+         rho_pls_IP_clin,0,rho_met_ip,rho_pls_micro_IP,
+         rho_pls_met_clin,rho_met_ip,0,rho_met_micro,
+         rho_pls_micro_clin,rho_pls_micro_IP,rho_met_micro,0),ncol = 4,dimnames = list(names(datos),names(datos)))
+
+
+```
+
+Now let's observe the optimal number of components.
+
+```{r}
+
+names(interaccion)<-variables_in_bacteria$Paciente
+sgccda.res_total_1 = block.splsda(X = datos, Y=interaccion, ncomp = 5,
+                           design = design)
+
+set.seed(123) # for reproducibility, only when the `cpus' argument is not used
+# this code takes a couple of min to run
+perf.diablo_toltal_1 = mixOmics::perf(sgccda.res_total_1, validation = 'Mfold', folds = 5, nrepeat = 50)
+
+#perf.diablo  # lists the different outputs
+plot(perf.diablo_toltal_1)
+```
+
+```{r}
+perf.diablo_toltal_1$choice.ncomp$WeightedVote
+(ncomp = perf.diablo_toltal_1$choice.ncomp$WeightedVote["Overall.BER", "centroids.dist"])
+
+```
+```{r}
+sgccda.res_genus = block.splsda(X = datos, Y = interaccion, ncomp = ncomp, design = design)
+
+```
+
+```{r}
+plotDiablo(sgccda.res_genus, ncomp = 1)
+
+```
+
+
+```{r}
+sgccda.res_met_gen.interaccion=sgccda.res_genus
+met_prop <- sgccda.res_met_gen.interaccion$prop_expl_var$metabolome
+mic_prop <- sgccda.res_met_gen.interaccion$prop_expl_var$microbiome
+clin_prop <- sgccda.res_met_gen.interaccion$prop_expl_var$clinical_data
+IP_prop <- sgccda.res_met_gen.interaccion$prop_expl_var$IP
+
+var.exp <- 100*data.frame(met=met_prop,mic=mic_prop,clin=clin_prop,IP=IP_prop)
+var.exp$comps <-rownames(var.exp)
+
+
+p1<-ggplot(data=var.exp,aes(x=comps,y=clin)) +   geom_bar(stat="identity",col="black",fill="darkblue")+
+  theme_article() + labs(y="Cinical Data %",x="")+
+  theme(axis.text=element_text(size=12,color = "black"))+coord_cartesian(ylim = c(-0,40)) 
+p2<-ggplot(data=var.exp,aes(x=comps,y=IP)) +   geom_bar(stat="identity",col="black",fill="darkblue")+
+  theme_article() + labs(y="IP Data %",x="")+
+  theme(axis.text=element_text(size=12,color = "black"))+coord_cartesian(ylim = c(-0,40)) 
+
+p3<- ggplot(data=var.exp, aes(x=comps, y=met)) + 
+    geom_bar(stat="identity",col="black",fill="darkblue")+
+    theme_article()+
+  labs(y=" Metabolome Data %",x="")+
+  theme(axis.text=element_text(size=12,color = "black"))+coord_cartesian(ylim = c(-0,40)) 
+
+p4<- ggplot(data=var.exp, aes(x=comps, y=mic)) + 
+    geom_bar(stat="identity",col="black",fill="darkblue")+
+    theme_article()+
+  labs(y="Microbiome Data %",x="")+
+  theme(axis.text=element_text(size=12,color = "black"))+coord_cartesian(ylim = c(-0,40)) 
+
+
+
+var.expl.plot <-ggarrange(p1,p2,p3,p4)
+annotate_figure(var.expl.plot, top = text_grob("Explained Variation by Block", 
+               color = "black", face = "bold", size = 14))
+```
+
+```{r}
+Group <- variables_in_bacteria$GROUP
+Group2 <- variables_in_bacteria$OBESE
+X<-data.frame(sgccda.res_genus$variates$clinical_data)
+colnames(X)<-paste0("C_",colnames(X))
+Y<-data.frame(sgccda.res_genus$variates$IP)
+colnames(Y)<-paste0("IP_",colnames(Y))
+Z <- data.frame(sgccda.res_genus$variates$metabolome)
+colnames(Z) <- paste0("Met_",colnames(Z))
+W <- data.frame(sgccda.res_genus$variates$microbiome)
+colnames(W) <- paste0("Micro_",colnames(W))
+
+p1 <- ggplot(X,aes(C_comp1,C_comp2))+theme_article() +
+     geom_hline(yintercept = 0, color = "gray70") +
+     geom_vline(xintercept = 0, color = "gray70") +
+     geom_point(aes(color = Group,shape=Group2), alpha = 0.55, size = 3) +
+     coord_cartesian(xlim = c(min(X[,1]),max(X[,1]))) +
+     scale_fill_discrete(name = "Group")
+
+
+      grafico1<- p1 + 
+     labs(x = c(paste("PC1 Cinic",round(100*sgccda.res_genus$prop_expl_var$clinical_data[1],2),"%")),
+          y=c(paste("PC2 Clinic",round(100*sgccda.res_genus$prop_expl_var$clinical_data[2],2),"%"))) +  
+     ggtitle(paste("Clinical Data",sep=" "))+ 
+     theme(plot.title = element_text(hjust = 0.5),legend.position = "none") +
+     scale_color_manual(values=1:3)
+      
+p2 <- ggplot(Y,aes(IP_comp1,IP_comp2))+theme_article() +
+     geom_hline(yintercept = 0, color = "gray70") +
+     geom_vline(xintercept = 0, color = "gray70") +
+     geom_point(aes(color = Group,shape=Group2), alpha = 0.55, size = 3) +
+     coord_cartesian(xlim = c(min(Y[,1]),max(Y[,1]))) +
+     scale_fill_discrete(name = "Group")
+
+
+      grafico2<- p2 + 
+     labs(x = c(paste("PC1 IP",round(100*sgccda.res_genus$prop_expl_var$IP[1],2),"%")),
+          y=c(paste("PC2 IP",round(100*sgccda.res_genus$prop_expl_var$IP[2],2),"%"))) +  
+     ggtitle(paste("IP data",sep=" "))+ 
+     theme(plot.title = element_text(hjust = 0.5),legend.position = "none") +
+     scale_color_manual(values=1:3)
+      
+p3 <- ggplot(Z,aes(Met_comp1,Met_comp3))+theme_article() +
+     geom_hline(yintercept = 0, color = "gray70") +
+     geom_vline(xintercept = 0, color = "gray70") +
+     geom_point(aes(color = Group,shape=Group2), alpha = 0.55, size = 3) +
+     coord_cartesian(xlim = c(min(Z[,1]),max(Z[,1]))) +
+     scale_fill_discrete(name = "Group")
+
+
+      grafico3<- p3 +  labs(x = c(paste("PC1 Metabolome",round(100*sgccda.res_genus$prop_expl_var$metabolome[1],2),"%")),
+          y=c(paste("PC3 Metabolome",
+                    round(100*sgccda.res_genus$prop_expl_var$metabolome[3],2),"%"))) +  
+     ggtitle(paste("Metabolome data",sep=" "))+ 
+     theme(plot.title = element_text(hjust = 0.5),legend.position = "none") +
+     scale_color_manual(values=1:3)
+      
+
+p4 <- ggplot(W,aes(Micro_comp1,Micro_comp2))+theme_article() +
+     geom_hline(yintercept = 0, color = "gray70") +
+     geom_vline(xintercept = 0, color = "gray70") +
+     geom_point(aes(color = Group,shape=Group2), alpha = 0.55, size = 3) +
+     coord_cartesian(xlim = c(min(W[,1]),max(W[,1]))) +
+     scale_fill_discrete(name = "Group")
+
+
+      grafico4<- p4 +
+     labs(x = c(paste("PC1 Microbiome",round(100*sgccda.res_genus$prop_expl_var$microbiome[1],2),"%")),
+          y=c(paste("PC2 MIcrobiome",round(100*sgccda.res_genus$prop_expl_var$microbiome[2],2),"%"))) +  
+     ggtitle(paste("Microbiome data",sep=" "))+ 
+     theme(plot.title = element_text(hjust = 0.5),legend.position = "none") +
+     scale_color_manual(values=1:3)     
+      
+p<-ggarrange(grafico1,grafico2,grafico3,grafico4,common.legend = T,nrow=2,ncol=2,legend="bottom")
+annotate_figure(p, top = text_grob("Basal Integration with Genera: DIABLO", 
+               color = "black", face = "bold", size = 14))
+```
+
+```{r}
+Group <- variables_in_bacteria$GROUP
+Group2 <- variables_in_bacteria$OBESE
+X<-data.frame(sgccda.res_genus$variates$clinical_data)
+colnames(X)<-paste0("C_",colnames(X))
+Y<-data.frame(sgccda.res_genus$variates$IP)
+colnames(Y)<-paste0("IP_",colnames(Y))
+Z <- data.frame(sgccda.res_genus$variates$metabolome)
+colnames(Z) <- paste0("Met_",colnames(Z))
+W <- data.frame(sgccda.res_genus$variates$microbiome)
+colnames(W) <- paste0("Micro_",colnames(W))
+datos.plot <-bind_cols(X,Y)
+p5<- ggplot(datos.plot,aes(C_comp1,IP_comp1))+theme_article() +
+     geom_hline(yintercept = 0, color = "gray70") +
+     geom_vline(xintercept = 0, color = "gray70") +
+     geom_point(aes(color = Group,shape=Group2), alpha = 0.55, size = 3) +
+     coord_cartesian(xlim = c(min(datos.plot[,1]),max(datos.plot[,1]))) +
+     scale_fill_discrete(name = "Group")
+
+
+      grafico5<- p5 + 
+     labs(x = c(paste("PC1 Cinic",round(100*sgccda.res_genus$prop_expl_var$clinical_data[1],2),"%")),
+          y=c(paste("PC1 IP",round(100*sgccda.res_genus$prop_expl_var$IP[1],2),"%"))) +  
+     ggtitle(paste("Clinical-IP Data",sep=" "))+ 
+     theme(plot.title = element_text(hjust = 0.5),legend.position = "none") +
+     scale_color_manual(values=1:3)
+
+
+
+
+datos.plot <- bind_cols(X,Z)
+p6 <- ggplot(datos.plot,aes(C_comp2,Met_comp1))+theme_article() +
+     geom_hline(yintercept = 0, color = "gray70") +
+     geom_vline(xintercept = 0, color = "gray70") +
+     geom_point(aes(color = Group,shape=Group2), alpha = 0.55, size = 3) +
+     coord_cartesian(xlim = c(min(X[,2]),max(X[,2]))) +
+     scale_fill_discrete(name = "Group")
+
+
+      grafico6<- p6 + 
+     labs(x = c(paste("PC2 Clinic",round(100*sgccda.res_genus$prop_expl_var$clinical_data[2],2),"%")),
+          y=c(paste("PC1 Metabolome ",round(100*sgccda.res_genus$prop_expl_var$metabolome[1],2),"%"))) +  
+     ggtitle(paste("Clinical-Metabolome",sep=" "))+ 
+     theme(plot.title = element_text(hjust = 0.5),legend.position = "none") +
+     scale_color_manual(values=1:3)
+      
+      
+      
+      
+
+
+
+
+
+datos.plot<-bind_cols(X,W)
+p7 <- ggplot(datos.plot,aes(Micro_comp1,C_comp2))+theme_article() +
+     geom_hline(yintercept = 0, color = "gray70") +
+     geom_vline(xintercept = 0, color = "gray70") +
+     geom_point(aes(color = Group,shape=Group2), alpha = 0.55, size = 3) +
+     coord_cartesian(xlim = c(min(W[,1]),max(W[,1]))) +
+     scale_fill_discrete(name = "Group")
+
+
+      grafico7<- p7 +  labs(x = c(paste("PC1 Microbiome",round(100*sgccda.res_genus$prop_expl_var$microbiome[1],2),"%")),
+          y=c(paste("PC2 Clinical",
+                    round(100*sgccda.res_genus$prop_expl_var$clinical[2],2),"%"))) +  
+     ggtitle(paste("Microbiome-Clinical data",sep=" "))+ 
+     theme(plot.title = element_text(hjust = 0.5),legend.position = "none") +
+     scale_color_manual(values=1:3)
+      
+
+
+
+datos.plot <- bind_cols(Y,Z)
+p8 <- ggplot(datos.plot,aes(Met_comp1,IP_comp1))+theme_article() +
+     geom_hline(yintercept = 0, color = "gray70") +
+     geom_vline(xintercept = 0, color = "gray70") +
+     geom_point(aes(color = Group,shape=Group2), alpha = 0.55, size = 3) +
+     coord_cartesian(xlim = c(min(Z[,1]),max(Z[,1]))) +
+     scale_fill_discrete(name = "Group")
+
+
+      grafico8<- p8 +
+     labs(x = c(paste("PC1 Metabolome",round(100*sgccda.res_genus$prop_expl_var$metabolome[1],2),"%")),
+          y=c(paste("PC1 IP",round(100*sgccda.res_genus$prop_expl_var$IP[1],2),"%"))) +  
+     ggtitle(paste("Metabolome-IP data",sep=" "))+ 
+     theme(plot.title = element_text(hjust = 0.5),legend.position = "none") +
+     scale_color_manual(values=1:3)
+      
+      
+
+
+
+datos.plot <- bind_cols(Y,W)
+p9 <- ggplot(datos.plot,aes(Micro_comp1,IP_comp1))+theme_article() +
+     geom_hline(yintercept = 0, color = "gray70") +
+     geom_vline(xintercept = 0, color = "gray70") +
+     geom_point(aes(color = Group,shape=Group2), alpha = 0.55, size = 3) +
+     coord_cartesian(xlim = c(min(W[,1]),max(W[,1]))) +
+     scale_fill_discrete(name = "Group")
+
+
+      grafico9<- p9 +
+     labs(x = c(paste("PC1 Microbiome",round(100*sgccda.res_genus$prop_expl_var$microbiome[1],2),"%")),
+          y=c(paste("PC1 IP",round(100*sgccda.res_genus$prop_expl_var$IP[1],2),"%"))) +  
+     ggtitle(paste("Microbiome-IP data",sep=" "))+ 
+     theme(plot.title = element_text(hjust = 0.5),legend.position = "none") +
+     scale_color_manual(values=1:3)
+      
+      
+
+
+datos.plot <- bind_cols(Z,W)
+p10 <- ggplot(datos.plot,aes(Micro_comp2,Met_comp1))+theme_article() +
+     geom_hline(yintercept = 0, color = "gray70") +
+     geom_vline(xintercept = 0, color = "gray70") +
+     geom_point(aes(color = Group,shape=Group2), alpha = 0.55, size = 3) +
+     coord_cartesian(xlim = c(min(W[,2]),max(W[,2]))) +
+     scale_fill_discrete(name = "Group")
+
+
+      grafico10<- p10 +
+     labs(x = c(paste("PC2 Microbiome",round(100*sgccda.res_genus$prop_expl_var$microbiome[2],2),"%")),
+          y=c(paste("PC1 Metabolome",round(100*sgccda.res_genus$prop_expl_var$metabolome[1],2),"%"))) +  
+     ggtitle(paste("Microbiome-Metabolome data",sep=" "))+ 
+     theme(plot.title = element_text(hjust = 0.5),legend.position = "none") +
+     scale_color_manual(values=1:3)
+      
+      
+
+
+
+
+p<-ggarrange(grafico5,grafico6,grafico7,grafico8,common.legend = T,nrow=2,ncol=2,legend="bottom")
+annotate_figure(p, top = text_grob("Basal Integration with Genera: DIABLO (1)", 
+               color = "black", face = "bold", size = 14))
+
+q<-ggarrange(grafico9,grafico10,common.legend = T,nrow=2,ncol=2,legend="bottom")
+annotate_figure(q, top = text_grob("Basal Integration with Genera: DIABLO (2)", 
+               color = "black", face = "bold", size = 14))
+```
+## Contribucion de variables por grupo componente 1 y micro 2
+
+```{r,fig.align='center',fig.height=9,fig.width=9}
+
+fn.contrib <- function(p,grupcon1,grupcon2){
+  ## Esta funcion coge las variables que son especificas de un grupo
+  p$variables <-rownames(p)
+  p.obj <-p[p[,"GroupContrib"]==grupcon1 & p[,paste0("Contrib.",grupcon2)]==T,c("variables","importance")]
+
+  return(p.obj)
+}
+fn.exportmat <- function(Z,grupo,variables){
+  Z<-as.data.frame(Z)
+  Z.sub<-Z[rownames(Z)%in% grupo,variables]
+  if(is.null(dim(Z.sub))){
+    
+    Z.sub<-as.data.frame(Z.sub)
+    rownames(Z.sub)<-rownames(Z)[rownames(Z)%in% grupo]
+    Z.sub$pacientes <- rownames(Z.sub)
+    colnames(Z.sub)<-c(variables,"pacientes")
+  }else{
+    Z.sub<-as.data.frame(Z.sub)
+  }
+  
+  return(Z.sub)
+  
+  
+}
+mindis <- 100
+p<-plotLoadings(sgccda.res_genus,contrib = "max",block=1,plot=F,ndisplay = mindis,comp=1,method="median")
+q<-plotLoadings(sgccda.res_genus,contrib = "max",block=2,plot=F,ndisplay = mindis,comp = 1,method="median")
+r<-plotLoadings(sgccda.res_genus,contrib = "max",block=3,plot=F,ndisplay = mindis,comp = 1,method="median")
+s<-plotLoadings(sgccda.res_genus,contrib = "max",block=4,plot=F,ndisplay = mindis,comp =2,method="median")
+
+
+## veamos de los grupos cuales tienen por lo menos un valor true
+
+grupos.contrib <- colnames(p)[grep("^[cig]",invert = T,ignore.case = T,colnames(p))]
+prueba <-apply(cbind(apply(p[,7:12], 2,any),
+apply(q[,7:12], 2,any),
+apply(r[,7:12], 2,any),
+apply(s[,7:12], 2,any)),2,any)
+
+if(all(prueba==F)) print("CUIDADOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOO")
+
+(grupcon2. <- sort(colnames(p)[grep("^[cig]",invert = T,ignore.case = T,colnames(p))]))
+(grupcon1. <- gsub("No.","No ",grupcon2.))
+(grupos.con<-cbind(grupcon1.,grupcon2.))
+aux1<-vector(mode="list",length=dim(grupos.con)[1]);names(aux1)<-grupcon1.
+aux2 <-vector(mode="list",length=dim(grupos.con)[1]);names(aux2)<-grupcon1.
+aux3 <-vector(mode="list",length=dim(grupos.con)[1]);names(aux3)<-grupcon1.
+aux4 <-vector(mode="list",length=dim(grupos.con)[1]);names(aux4)<-grupcon1.
+
+  for(i in 1:dim(grupos.con)[1]){
+  print(grupos.con[i,])
+  aux1[[i]]<-fn.contrib(p,grupcon1 = grupos.con[i,1],grupcon2 = grupos.con[i,2])
+  aux2[[i]]<-fn.contrib(q,grupcon1 = grupos.con[i,1],grupcon2 = grupos.con[i,2])
+  aux3[[i]]<-fn.contrib(r,grupcon1 = grupos.con[i,1],grupcon2 = grupos.con[i,2])
+  aux4[[i]]<-fn.contrib(s,grupcon1 = grupos.con[i,1],grupcon2 = grupos.con[i,2])
+
+  }
+
+aux.tmp<-list(aux1,aux2,aux3,aux4)
+variables_in_bacteria$interaccion<-interaccion
+grupos <- names(aux.tmp[[1]])
+z <- data.frame(cimDiablo(sgccda.res_genus)$mat)
+list_comp1 <- vector(mode="list",length = dim(grupos.con)[1])
+names(list_comp1)<-grupos
+for(l in 1:length(list_comp1)){
+  list.temp<-vector(mode="list",length=(length(sgccda.res_genus$variates)-1))
+  sujetos <- variables_in_bacteria[variables_in_bacteria$interaccion==grupos[l],"Paciente"]
+  for(b in 1:length(aux.tmp)){
+    
+    variables <-aux.tmp[[b]][[l]][,"variables"]
+    print(variables)
+    variables<-variables[!is.na(variables)]
+    variables<-variables[variables %in% colnames(z)]
+    list.temp[[b]]<-fn.exportmat(z,sujetos,variables)
+  }
+  names(list.temp)<-names(datos)
+list_comp1[[l]]<-list.temp
+}
+
+```
+### Control females
+
+
+```{r}
+
+
+fn.check.components <- function(lista){
+  lista.o <- vector(mode="list",length=length(lista))
+  names(lista.o)<-names(lista)
+  for(i in 1:length(lista.o)){
+    df.i<- lista[[which(names(lista)==names(lista[i]))]]
+    colnames.df.i<-lapply(df.i, colnames)
+
+    if(length(grep("paciente",unlist(colnames.df.i),ignore.case = T))==0){
+      df.i<-df.i
+    }else{
+      w<-names(which(lapply(colnames.df.i, function(y) length(grep("paciente",x=y)))!=0))
+      for(nombre in w){
+        df.nombre.tmp<-df.i[[nombre]]
+        df.nombre<-as.data.frame(df.nombre.tmp[,-grep("paciente",
+                                                 invert = F,
+                                                 ignore.case = T,
+                                                 x=colnames(df.nombre.tmp))])
+        
+        df.i[[nombre]]<-df.nombre
+        names(df.i[[nombre]])<-colnames(df.nombre.tmp)[-grep("paciente",
+                                                 invert = F,
+                                                 ignore.case = T,
+                                                 x=colnames(df.nombre.tmp))]
+    
+      }
+    }
+    
+    lista.o[[i]]<-df.i
+    
+  }
+ return(lista.o)
+}
+fun.sigBiologica <- function(datos,lista.componentes,grupo){
+  lista.componentes<-fn.check.components(lista.componentes)
+  sujetos<-bind_cols(lista.componentes[[which(names(lista.componentes)==names(lista.componentes[grupo]))]])
+  
+  # sujetos<-sujetos[hclust(dist(sujetos),method = "complete")$order,hclust(dist(t(sujetos)),method = "complete")$order]
+   cor.s<- cor(sujetos,method="spearman")
+   diag(cor.s)<-0 
+  
+  clin_names <- colnames(datos$clinical_data)
+  ip_names <- colnames(datos$IP)
+  meta_names <- colnames(datos$metabolome)
+  micro_names <- colnames(datos$microbiome)
+  w.clin <- which(colnames(cor.s) %in% clin_names)
+  w.ip <- which(colnames(cor.s) %in% ip_names)
+  w.meta <- which(colnames(cor.s) %in% meta_names)
+  w.micro <- which(colnames(cor.s) %in% micro_names)
+  cor.s[w.clin,w.clin]<-0
+  cor.s[w.ip,w.ip]<-0
+  cor.s[w.meta,w.meta]<-0
+  cor.s[w.micro,w.micro]<-0
+  return(list(correlacion=cor.s,sujetos=sujetos))
+  
+
+  }
+```
+
+```{r}
+library(igraph)
+fn.network<-function(datos,lista,varcom,grupo.,p.value,complete=F){
+
+  obj.mio <-fun.sigBiologica(datos,lista.componentes = lista,grupo = grupo.)
+  hmisc.obj<-Hmisc::rcorr(as.matrix(obj.mio$sujetos),type = "spearman")
+  complete=F
+  if(complete==F){
+    
+    obj.mio$correlacion[hmisc.obj$P>p.value]<-0
+    correlacion<-obj.mio
+  }else{
+      
+        hmisc.obj$r[abs(hmisc.obj$P)>p.value]<-0
+        diag(hmisc.obj$r)<-0
+        correlacion<-hmisc.obj
+        
+        names(correlacion)<-c("correlacion","n","P")
+
+    
+  }
+    red.tmp <- graph_from_adjacency_matrix(correlacion$correlacion,
+                                      weighted=TRUE, mode="upper",diag=F)
+    
+#     red <- induced_subgraph(
+#   g.tmp,V(g.tmp)[components(g.tmp)$membership == which.max(components(g.tmp)$csize)]
+# )
+    
+      LO = layout_in_circle(red.tmp)
+    Isolated = which(degree(red.tmp)==0)
+    if(length(Isolated)==0){
+      red<-red.tmp
+      LO = layout_in_circle(red.tmp)
+      LO2<-LO
+    }else{
+      
+          red = delete.vertices(red.tmp, Isolated)
+          LO2 = LO[-Isolated,]
+    }
+
+    deg <- degree(red)
+    
+    nombres <-get.data.frame(red,  what="vertices")$name
+    names.clin <- which((nombres) %in% colnames(datos$clinical_data))
+    names.ip <- which((nombres) %in% colnames(datos$IP))
+    names.met <- which((nombres) %in% colnames(datos$metabolome))
+    names.micro <- which((nombres) %in% colnames(datos$microbiome))
+    
+    color.graph <- 1:length((nombres))
+    color.graph[names.clin]<-1
+    color.graph[names.ip]<-2
+    color.graph[names.met]<-3
+    color.graph[names.micro]<-4
+    variables_finales <-get.data.frame(red)
+    pesos <-get.data.frame(red)$weight
+    titulo<-unique(varcom[varcom$Paciente %in% rownames(obj.mio$sujetos),"interaccion"])
+    p<-plot(red,
+    edge.color=ifelse(pesos>0,"red","blue"),           # Edge color
+    edge.width=abs(E(red)$weight)*5,                        # Edge width, defaults to 1
+    edge.lty=c("solid"),
+    layout=LO2,
+    rescale=T,#ayout.fruchterman.reingold,ayout.fruchterman.reingold,
+    vertex.size=deg*6,
+    edge.curved=0,
+    main=paste(titulo,"p-value",p.value),
+    vertex.label.cex=0.75, 
+    vertex.label.family="Helvetica",
+    vertex.label.font=2,
+    vertex.shape="circle", 
+    vertex.label.color="black",
+    vertex.color = color.graph)
+  return(variables_finales)
+
+    
+  
+}
+
+```
+
+
+```{r}
+p<-fn.network(datos=datos,lista=list_comp1,varcom=variables_in_bacteria,
+              grupo.=1,p.value=0.05,complete=F)
+
+```
+
+
+```{r}
+
+micro<-as.data.frame(datos$microbiome[,colnames(datos$microbiome)%in%unique(c(p$from,p$to))])
+
+colnames(micro)<-colnames(datos$microbiome[,colnames(datos$microbiome)%in%unique(c(p$from,p$to))])
+micro$grupo<-variables_in_bacteria[variables_in_bacteria$Paciente %in% rownames(micro),"interaccion"]
+
+meta<-as.data.frame(datos$metabolome[,colnames(datos$metabolome)%in%unique(c(p$from,p$to))])
+colnames(meta)<-colnames(datos$metabolome[,colnames(datos$metabolome)%in%unique(c(p$from,p$to))])
+meta$grupo<-variables_in_bacteria[variables_in_bacteria$Paciente %in% rownames(meta),"interaccion"]
+
+ip<-as.data.frame(datos$IP[,colnames(datos$IP)%in%unique(c(p$from,p$to))])
+colnames(ip)<-colnames(datos$IP[,colnames(datos$IP)%in%unique(c(p$from,p$to))])
+ip$grupo<-variables_in_bacteria[variables_in_bacteria$Paciente %in% rownames(micro),"interaccion"]
+
+clin<-as.data.frame(datos$clinical_data[,colnames(datos$clinical_data)%in%unique(c(p$from,p$to))])
+colnames(clin)<-colnames(datos$clinical_data[,colnames(datos$clinical_data)%in%unique(c(p$from,p$to))])
+clin$grupo<-variables_in_bacteria[variables_in_bacteria$Paciente %in% rownames(micro),"interaccion"]
+
+```
+
+```{r}
+micro.melt <- reshape2::melt(micro)
+p1<-ggplot(data=micro.melt,aes(x=variable,y=value,fill=grupo))+geom_boxplot()+theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1))
+
+meta.melt <- reshape2::melt(meta)
+p2<-ggplot(data=meta.melt,aes(x=variable,y=value,fill=grupo))+geom_boxplot()+theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1))
+ip.melt <- reshape2::melt(ip)
+p3<-ggplot(data=ip.melt,aes(x=variable,y=value,fill=grupo))+geom_boxplot()+theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1))+xlab("CD14")
+
+clin.melt <- reshape2::melt(clin)
+# ggplot(data=clin.melt,aes(x=variable,y=value,fill=grupo))+geom_boxplot()+theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1))
+
+p1;p2;p3
+
+```
+### Obese females
+
+```{r}
+p<-fn.network(datos=datos,lista=list_comp1,varcom=variables_in_bacteria,
+              grupo.=2,p.value=0.05,complete=F)
+```
+
+
+```{r}
+
+micro<-data.frame(datos$microbiome[,colnames(datos$microbiome)%in%unique(c(p$from,p$to))])
+micro$grupo<-variables_in_bacteria[variables_in_bacteria$Paciente %in% rownames(micro),"interaccion"]
+
+meta<-data.frame(datos$metabolome[,colnames(datos$metabolome)%in%unique(c(p$from,p$to))])
+meta$grupo<-variables_in_bacteria[variables_in_bacteria$Paciente %in% rownames(meta),"interaccion"]
+
+ip<-data.frame(datos$IP[,colnames(datos$IP)%in%unique(c(p$from,p$to))])
+ip$grupo<-variables_in_bacteria[variables_in_bacteria$Paciente %in% rownames(micro),"interaccion"]
+
+clin<-data.frame(datos$clinical_data[,colnames(datos$clinical_data)%in%unique(c(p$from,p$to))])
+clin$grupo<-variables_in_bacteria[variables_in_bacteria$Paciente %in% rownames(micro),"interaccion"]
+
+```
+
+```{r}
+micro.melt <- reshape2::melt(micro)
+ggplot(data=micro.melt,aes(x=variable,y=value,fill=grupo))+geom_boxplot()+theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1))
+
+# meta.melt <- reshape2::melt(meta)
+# ggplot(data=meta.melt,aes(x=variable,y=value,fill=grupo))+geom_boxplot()+theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1))
+# 
+#  ip.melt <- reshape2::melt(ip) ggplot(data=ip.melt,aes(x=variable,y=value,fill=grupo))+geom_boxplot()+theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1))
+
+clin.melt <- reshape2::melt(clin)
+ggplot(data=clin.melt,aes(x=variable,y=value,fill=grupo))+geom_boxplot()+theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1))
+
+
+
+```
+### no obese pcos
+
+```{r}
+
+p<-fn.network(datos=datos,lista=list_comp1,varcom=variables_in_bacteria,
+              grupo.=5,p.value=0.05,complete=F)
+
+
+```
+
+
+```{r}
+
+micro<-as.data.frame(datos$microbiome[,colnames(datos$microbiome)%in%unique(c(p$from,p$to))])
+
+colnames(micro)<-colnames(datos$microbiome[,colnames(datos$microbiome)%in%unique(c(p$from,p$to))])
+micro$grupo<-variables_in_bacteria[variables_in_bacteria$Paciente %in% rownames(micro),"interaccion"]
+
+meta<-as.data.frame(datos$metabolome[,colnames(datos$metabolome)%in%unique(c(p$from,p$to))])
+colnames(meta)<-colnames(datos$metabolome[,colnames(datos$metabolome)%in%unique(c(p$from,p$to))])
+meta$grupo<-variables_in_bacteria[variables_in_bacteria$Paciente %in% rownames(meta),"interaccion"]
+
+ip<-as.data.frame(datos$IP[,colnames(datos$IP)%in%unique(c(p$from,p$to))])
+colnames(ip)<-colnames(datos$IP[,colnames(datos$IP)%in%unique(c(p$from,p$to))])
+ip$grupo<-variables_in_bacteria[variables_in_bacteria$Paciente %in% rownames(micro),"interaccion"]
+
+clin<-as.data.frame(datos$clinical_data[,colnames(datos$clinical_data)%in%unique(c(p$from,p$to))])
+colnames(clin)<-colnames(datos$clinical_data[,colnames(datos$clinical_data)%in%unique(c(p$from,p$to))])
+clin$grupo<-variables_in_bacteria[variables_in_bacteria$Paciente %in% rownames(micro),"interaccion"]
+
+```
+
+```{r}
+micro.melt <- reshape2::melt(micro)
+p1<-ggplot(data=micro.melt,aes(x=variable,y=value,fill=grupo))+geom_boxplot()+theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1))+xlab("Bacteroides")
+
+meta.melt <- reshape2::melt(meta)
+p2<-ggplot(data=meta.melt,aes(x=variable,y=value,fill=grupo))+geom_boxplot()+theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1))+xlab("Glycine_mean")
+
+ggarrange(p1,p2,common.legend = T)
+# ip.melt <- reshape2::melt(ip)
+# ggplot(data=ip.melt,aes(x=variable,y=value,fill=grupo))+geom_boxplot()+theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1))
+
+# clin.melt <- reshape2::melt(clin)
+# ggplot(data=clin.melt,aes(x=variable,y=value,fill=grupo))+geom_boxplot()+theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1))
+
+
+```
+### obese pcos
+
+
+```{r}
+
+p<-fn.network(datos=datos,lista=list_comp1,varcom=variables_in_bacteria,
+              grupo.=6,p.value=0.01,complete=F)
+
+
+```
+
+
+```{r}
+
+micro<-as.data.frame(datos$microbiome[,colnames(datos$microbiome)%in%unique(c(p$from,p$to))])
+
+colnames(micro)<-colnames(datos$microbiome[,colnames(datos$microbiome)%in%unique(c(p$from,p$to))])
+micro$grupo<-variables_in_bacteria[variables_in_bacteria$Paciente %in% rownames(micro),"interaccion"]
+
+meta<-as.data.frame(datos$metabolome[,colnames(datos$metabolome)%in%unique(c(p$from,p$to))])
+colnames(meta)<-colnames(datos$metabolome[,colnames(datos$metabolome)%in%unique(c(p$from,p$to))])
+meta$grupo<-variables_in_bacteria[variables_in_bacteria$Paciente %in% rownames(meta),"interaccion"]
+
+ip<-as.data.frame(datos$IP[,colnames(datos$IP)%in%unique(c(p$from,p$to))])
+colnames(ip)<-colnames(datos$IP[,colnames(datos$IP)%in%unique(c(p$from,p$to))])
+ip$grupo<-variables_in_bacteria[variables_in_bacteria$Paciente %in% rownames(micro),"interaccion"]
+
+clin<-as.data.frame(datos$clinical_data[,colnames(datos$clinical_data)%in%unique(c(p$from,p$to))])
+colnames(clin)<-colnames(datos$clinical_data[,colnames(datos$clinical_data)%in%unique(c(p$from,p$to))])
+clin$grupo<-variables_in_bacteria[variables_in_bacteria$Paciente %in% rownames(micro),"interaccion"]
+
+```
+
+```{r}
+micro.melt <- reshape2::melt(micro)
+p1<-ggplot(data=micro.melt,aes(x=variable,y=value,fill=grupo))+geom_boxplot()+theme(axis.text.x = element_text(angle = 45, vjust = 0.5, hjust=1))+xlab("")
+
+meta.melt <- reshape2::melt(meta)
+p2<-ggplot(data=meta.melt,aes(x=variable,y=log(value),fill=grupo))+geom_boxplot()+theme(axis.text.x = element_text(angle = 45, vjust = 0.5, hjust=1))
+ip.melt <- reshape2::melt(ip)
+p3<-ggplot(data=ip.melt,aes(x=variable,y=value,fill=grupo))+geom_boxplot()+theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1))+xlab("Succinato")
+
+clin.melt <- reshape2::melt(clin)
+p4<-ggplot(data=clin.melt,aes(x=variable,y=value,fill=grupo))+geom_boxplot()+theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1))+xlab("EDAD")
+
+p1;p2;ggarrange(p3,p4,nrow = 2,common.legend = T)
+```
+
+### males no obese
+
+```{r}
+
+p<-fn.network(datos=datos,lista=list_comp1,varcom=variables_in_bacteria,
+              grupo.=3,p.value=0.05,complete=F)
+
+
+```
+
+
+```{r}
+
+micro<-data.frame(datos$microbiome[,colnames(datos$microbiome)%in%unique(c(p$from,p$to))])
+micro$grupo<-variables_in_bacteria[variables_in_bacteria$Paciente %in% rownames(micro),"interaccion"]
+
+meta<-data.frame(datos$metabolome[,colnames(datos$metabolome)%in%unique(c(p$from,p$to))])
+meta$grupo<-variables_in_bacteria[variables_in_bacteria$Paciente %in% rownames(meta),"interaccion"]
+
+ip<-data.frame(datos$IP[,colnames(datos$IP)%in%unique(c(p$from,p$to))])
+ip$grupo<-variables_in_bacteria[variables_in_bacteria$Paciente %in% rownames(micro),"interaccion"]
+
+clin<-data.frame(datos$clinical_data[,colnames(datos$clinical_data)%in%unique(c(p$from,p$to))])
+clin$grupo<-variables_in_bacteria[variables_in_bacteria$Paciente %in% rownames(micro),"interaccion"]
+
+```
+
+```{r}
+micro.melt <- reshape2::melt(micro)
+p1<-ggplot(data=micro.melt,aes(x=variable,y=value,fill=grupo))+geom_boxplot()+theme(axis.text.x = element_text(angle = 00, vjust = 0.5, hjust=1)) +scale_x_discrete(labels="Oxoisocaproic")+xlab("")
+meta.melt <- reshape2::melt(meta)
+p2<-ggplot(data=meta.melt,aes(x=variable,y=value,fill=grupo))+geom_boxplot()+theme(axis.text.x = element_text(angle = 0, vjust = 0.5, hjust=1))+xlab("")+scale_x_discrete(labels="Haemophillus")
+
+ggarrange(p1,p2,nrow=2,common.legend = T)
+
+#
+#  ip.melt <- reshape2::melt(ip) ggplot(data=ip.melt,aes(x=variable,y=value,fill=grupo))+geom_boxplot()+theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1))
+# 
+# clin.melt <- reshape2::melt(clin)
+# ggplot(data=clin.melt,aes(x=variable,y=value,fill=grupo))+geom_boxplot()+theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1))
+
+
+
+```
+
+
+
+###Males Obese
+
+```{r}
+p<-fn.network(datos=datos,lista=list_comp1,varcom=variables_in_bacteria,
+              grupo.=4,p.value=0.05,complete=F)
+
+
+
+```
+
+
+```{r}
+
+micro<-data.frame(datos$microbiome[,colnames(datos$microbiome)%in%unique(c(p$from,p$to))])
+micro$grupo<-variables_in_bacteria[variables_in_bacteria$Paciente %in% rownames(micro),"interaccion"]
+
+meta<-data.frame(datos$metabolome[,colnames(datos$metabolome)%in%unique(c(p$from,p$to))])
+meta$grupo<-variables_in_bacteria[variables_in_bacteria$Paciente %in% rownames(meta),"interaccion"]
+
+ip<-data.frame(datos$IP[,colnames(datos$IP)%in%unique(c(p$from,p$to))])
+ip$grupo<-variables_in_bacteria[variables_in_bacteria$Paciente %in% rownames(micro),"interaccion"]
+
+clin<-data.frame(datos$clinical_data[,colnames(datos$clinical_data)%in%unique(c(p$from,p$to))])
+clin$grupo<-variables_in_bacteria[variables_in_bacteria$Paciente %in% rownames(micro),"interaccion"]
+
+```
+
+```{r}
+# micro.melt <- reshape2::melt(micro)
+# ggplot(data=micro.melt,aes(x=variable,y=value,fill=grupo))+geom_boxplot()+theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1))
+# 
+# meta.melt <- reshape2::melt(meta)
+# ggplot(data=meta.melt,aes(x=variable,y=value,fill=grupo))+geom_boxplot()+theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1))
+
+ip.melt <- reshape2::melt(ip);
+
+p1<-ggplot(data=ip.melt,aes(x=variable,y=value,fill=grupo))+geom_boxplot()+theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1))+scale_x_discrete(labels="GLP2")
+
+clin.melt <- reshape2::melt(clin)
+p2<-ggplot(data=clin.melt,aes(x=variable,y=value,fill=grupo))+geom_boxplot()+theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1))+xlab("GLP2")
+
+
+ggarrange(p1,p2,nrow = 2,common.legend = T)
+```
+
+## Variables que contrinuyen
+
+
+```{r}
+mixOmics::plotVar(sgccda.res_genus,blocks = 1)
+mixOmics::plotVar(sgccda.res_genus,blocks = 2)
+mixOmics::plotVar(sgccda.res_genus,blocks = 3)
+mixOmics::plotVar(sgccda.res_genus,blocks = 4)
+
+
+```
+
+
+```{r}
+p<-plotLoadings(sgccda.res_genus,contrib = "max",block=1,plot=T,ndisplay = mindis,comp=1,method="median")
+q<-plotLoadings(sgccda.res_genus,contrib = "max",block=2,plot=T,ndisplay = mindis,comp = 1,method="median")
+r<-plotLoadings(sgccda.res_genus,contrib = "max",block=3,plot=T,ndisplay = mindis,comp = 3,method="median")
+s<-plotLoadings(sgccda.res_genus,contrib = "max",block=4,plot=T,ndisplay = mindis,comp = 2,method="median")
+s<-plotLoadings(sgccda.res_genus,contrib = "max",block=4,plot=T,ndisplay = mindis,comp = 1,method="median")
+
+```
+
+
+
+
+
+
+## Contribucion minima  de variables por grupo componente 1 y micro 1
+
+```{r,fig.align='center',fig.height=9,fig.width=9}
+
+mindis <- 100
+p<-plotLoadings(sgccda.res_genus,contrib = "min",block=1,plot=F,ndisplay = mindis,comp=1,method="median")
+q<-plotLoadings(sgccda.res_genus,contrib = "min",block=2,plot=F,ndisplay = mindis,comp = 1,method="median")
+r<-plotLoadings(sgccda.res_genus,contrib = "min",block=3,plot=F,ndisplay = mindis,comp = 1,method="median")
+s<-plotLoadings(sgccda.res_genus,contrib = "min",block=4,plot=F,ndisplay = mindis,comp =2 ,method="median")
+
+
+## veamos de los grupos cuales tienen por lo menos un valor true
+
+grupos.contrib <- colnames(p)[grep("^[cig]",invert = T,ignore.case = T,colnames(p))]
+prueba <-apply(cbind(apply(p[,7:12], 2,any),
+apply(q[,7:12], 2,any),
+apply(r[,7:12], 2,any),
+apply(s[,7:12], 2,any)),2,any)
+
+if(all(prueba==F)) print("CUIDADOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOO")
+
+(grupcon2. <- sort(colnames(p)[grep("^[cig]",invert = T,ignore.case = T,colnames(p))]))
+(grupcon1. <- gsub("No.","No ",grupcon2.))
+(grupos.con<-cbind(grupcon1.,grupcon2.))
+aux1<-vector(mode="list",length=dim(grupos.con)[1]);names(aux1)<-grupcon1.
+aux2 <-vector(mode="list",length=dim(grupos.con)[1]);names(aux2)<-grupcon1.
+aux3 <-vector(mode="list",length=dim(grupos.con)[1]);names(aux3)<-grupcon1.
+aux4 <-vector(mode="list",length=dim(grupos.con)[1]);names(aux4)<-grupcon1.
+
+  for(i in 1:dim(grupos.con)[1]){
+  print(grupos.con[i,])
+  aux1[[i]]<-fn.contrib(p,grupcon1 = grupos.con[i,1],grupcon2 = grupos.con[i,2])
+  aux2[[i]]<-fn.contrib(q,grupcon1 = grupos.con[i,1],grupcon2 = grupos.con[i,2])
+  aux3[[i]]<-fn.contrib(r,grupcon1 = grupos.con[i,1],grupcon2 = grupos.con[i,2])
+  aux4[[i]]<-fn.contrib(s,grupcon1 = grupos.con[i,1],grupcon2 = grupos.con[i,2])
+
+  }
+
+aux.tmp<-list(aux1,aux2,aux3,aux4)
+variables_in_bacteria$interaccion<-interaccion
+grupos <- names(aux.tmp[[1]])
+z <- data.frame(cimDiablo(sgccda.res_genus)$mat)
+list_comp2 <- vector(mode="list",length = dim(grupos.con)[1])
+names(list_comp2)<-grupos
+for(l in 1:length(list_comp2)){
+  list.temp<-vector(mode="list",length=(length(sgccda.res_genus$variates)-1))
+  sujetos <- variables_in_bacteria[variables_in_bacteria$interaccion==grupos[l],"Paciente"]
+  for(b in 1:length(aux.tmp)){
+    
+    variables <-aux.tmp[[b]][[l]][,"variables"]
+    print(variables)
+    variables<-variables[!is.na(variables)]
+    variables<-variables[variables %in% colnames(z)]
+    list.temp[[b]]<-fn.exportmat(z,sujetos,variables)
+  }
+  names(list.temp)<-names(datos)
+list_comp2[[l]]<-list.temp
+}
+
+```
+### Control females
+
+
+
+```{r}
+p<-fn.network(datos=datos,lista=list_comp2,varcom=variables_in_bacteria,
+              grupo.=1,p.value=0.05,complete=F)
+
+```
+
+
+```{r}
+
+micro<-as.data.frame(datos$microbiome[,colnames(datos$microbiome)%in%unique(c(p$from,p$to))])
+
+colnames(micro)<-colnames(datos$microbiome[,colnames(datos$microbiome)%in%unique(c(p$from,p$to))])
+micro$grupo<-variables_in_bacteria[variables_in_bacteria$Paciente %in% rownames(micro),"interaccion"]
+
+meta<-as.data.frame(datos$metabolome[,colnames(datos$metabolome)%in%unique(c(p$from,p$to))])
+colnames(meta)<-colnames(datos$metabolome[,colnames(datos$metabolome)%in%unique(c(p$from,p$to))])
+meta$grupo<-variables_in_bacteria[variables_in_bacteria$Paciente %in% rownames(meta),"interaccion"]
+
+ip<-as.data.frame(datos$IP[,colnames(datos$IP)%in%unique(c(p$from,p$to))])
+colnames(ip)<-colnames(datos$IP[,colnames(datos$IP)%in%unique(c(p$from,p$to))])
+ip$grupo<-variables_in_bacteria[variables_in_bacteria$Paciente %in% rownames(micro),"interaccion"]
+
+clin<-as.data.frame(datos$clinical_data[,colnames(datos$clinical_data)%in%unique(c(p$from,p$to))])
+colnames(clin)<-colnames(datos$clinical_data[,colnames(datos$clinical_data)%in%unique(c(p$from,p$to))])
+clin$grupo<-variables_in_bacteria[variables_in_bacteria$Paciente %in% rownames(micro),"interaccion"]
+
+```
+
+```{r}
+micro.melt <- reshape2::melt(micro)
+p1<-ggplot(data=micro.melt,aes(x=variable,y=value,fill=grupo))+geom_boxplot()+theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1))
+
+meta.melt <- reshape2::melt(meta)
+p2<-ggplot(data=meta.melt,aes(x=variable,y=value,fill=grupo))+geom_boxplot()+theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1))
+ip.melt <- reshape2::melt(ip)
+# ggplot(data=ip.melt,aes(x=variable,y=value,fill=grupo))+geom_boxplot()+theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1))
+
+clin.melt <- reshape2::melt(clin)
+p3<-ggplot(data=clin.melt,aes(x=variable,y=value,fill=grupo))+geom_boxplot()+theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1))+xlab("WHR")
+
+
+p4 <-ggarrange(p1,p2,p3,ncol = 2,nrow=2,common.legend = T)
+p4
+```
+### Obese females
+
+```{r}
+p<-fn.network(datos=datos,lista=list_comp2,varcom=variables_in_bacteria,
+              grupo.=2,p.value=0.05,complete=F)
+```
+
+
+```{r}
+
+micro<-data.frame(datos$microbiome[,colnames(datos$microbiome)%in%unique(c(p$from,p$to))])
+micro$grupo<-variables_in_bacteria[variables_in_bacteria$Paciente %in% rownames(micro),"interaccion"]
+
+meta<-data.frame(datos$metabolome[,colnames(datos$metabolome)%in%unique(c(p$from,p$to))])
+meta$grupo<-variables_in_bacteria[variables_in_bacteria$Paciente %in% rownames(meta),"interaccion"]
+
+ip<-data.frame(datos$IP[,colnames(datos$IP)%in%unique(c(p$from,p$to))])
+ip$grupo<-variables_in_bacteria[variables_in_bacteria$Paciente %in% rownames(micro),"interaccion"]
+
+clin<-data.frame(datos$clinical_data[,colnames(datos$clinical_data)%in%unique(c(p$from,p$to))])
+clin$grupo<-variables_in_bacteria[variables_in_bacteria$Paciente %in% rownames(micro),"interaccion"]
+
+```
+
+```{r}
+micro.melt <- reshape2::melt(micro)
+ggplot(data=micro.melt,aes(x=variable,y=value,fill=grupo))+geom_boxplot()+theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1))
+
+meta.melt <- reshape2::melt(meta)
+ggplot(data=meta.melt,aes(x=variable,y=value,fill=grupo))+geom_boxplot()+theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1))
+
+ # ip.melt <- reshape2::melt(ip) ggplot(data=ip.melt,aes(x=variable,y=value,fill=grupo))+geom_boxplot()+theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1))
+
+clin.melt <- reshape2::melt(clin)
+# ggplot(data=clin.melt,aes(x=variable,y=value,fill=grupo))+geom_boxplot()+theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1))
+
+
+
+```
+### no obese pcos
+
+```{r}
+p<-fn.network(datos=datos,lista=list_comp2,varcom=variables_in_bacteria,
+              grupo.=5,p.value=0.01,complete=F)
+# p<-fn.network(datos=datos,lista=list_comp1,varcom=variables_in_bacteria,
+#               grupo.=5,p.value=0.01,complete=F)
+
+
+```
+
+
+```{r}
+
+micro<-as.data.frame(datos$microbiome[,colnames(datos$microbiome)%in%unique(c(p$from,p$to))])
+
+colnames(micro)<-colnames(datos$microbiome[,colnames(datos$microbiome)%in%unique(c(p$from,p$to))])
+micro$grupo<-variables_in_bacteria[variables_in_bacteria$Paciente %in% rownames(micro),"interaccion"]
+
+meta<-as.data.frame(datos$metabolome[,colnames(datos$metabolome)%in%unique(c(p$from,p$to))])
+colnames(meta)<-colnames(datos$metabolome[,colnames(datos$metabolome)%in%unique(c(p$from,p$to))])
+meta$grupo<-variables_in_bacteria[variables_in_bacteria$Paciente %in% rownames(meta),"interaccion"]
+
+ip<-as.data.frame(datos$IP[,colnames(datos$IP)%in%unique(c(p$from,p$to))])
+colnames(ip)<-colnames(datos$IP[,colnames(datos$IP)%in%unique(c(p$from,p$to))])
+ip$grupo<-variables_in_bacteria[variables_in_bacteria$Paciente %in% rownames(micro),"interaccion"]
+
+clin<-as.data.frame(datos$clinical_data[,colnames(datos$clinical_data)%in%unique(c(p$from,p$to))])
+colnames(clin)<-colnames(datos$clinical_data[,colnames(datos$clinical_data)%in%unique(c(p$from,p$to))])
+clin$grupo<-variables_in_bacteria[variables_in_bacteria$Paciente %in% rownames(micro),"interaccion"]
+
+```
+
+```{r}
+micro.melt <- reshape2::melt(micro)
+micro.melt.12<-micro.melt[1:nrow(micro.melt)/4,]
+micro.melt.22<-micro.melt[round(nrow(micro.melt)/4):round((2/4)*nrow(micro.melt)),]
+micro.melt.23<-micro.melt[round(nrow(micro.melt)/2):round((3/4)*nrow(micro.melt)),]
+micro.melt.24<-micro.melt[round(3*nrow(micro.melt)/4):round((4/4)*nrow(micro.melt)),]
+p1<-ggplot(data=micro.melt.12,aes(x=variable,y=value,fill=grupo))+geom_boxplot()+theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1))+xlab("")
+p2<-ggplot(data=micro.melt.22,aes(x=variable,y=value,fill=grupo))+geom_boxplot()+theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1))+xlab("")
+
+p3<-ggplot(data=micro.melt.23,aes(x=variable,y=value,fill=grupo))+geom_boxplot()+theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1))+xlab("")
+
+
+p4<-ggplot(data=micro.melt.24,aes(x=variable,y=value,fill=grupo))+geom_boxplot()+theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1))+xlab("")
+
+
+meta.melt <- reshape2::melt(meta)
+p5<-ggplot(data=meta.melt,aes(x=variable,y=value,fill=grupo))+geom_boxplot()+theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1))+xlab("Glycine_mean")
+
+ip.melt <- reshape2::melt(ip)
+p6<-ggplot(data=ip.melt,aes(x=variable,y=value,fill=grupo))+geom_boxplot()+theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1))+xlab("GLP2")
+
+clin.melt <- reshape2::melt(clin)
+p7<-ggplot(data=clin.melt,aes(x=variable,y=value,fill=grupo))+geom_boxplot()+theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1))
+
+ggarrange(p1,p2,nrow=2,common.legend = T);p3;p4;ggarrange(p5,p6,p7,common.legend = T)
+```
+### obese pcos
+
+
+```{r}
+
+p<-fn.network(datos=datos,lista=list_comp2,varcom=variables_in_bacteria,
+              grupo.=6,p.value=0.05,complete=F)
+
+
+```
+
+
+```{r}
+
+micro<-as.data.frame(datos$microbiome[,colnames(datos$microbiome)%in%unique(c(p$from,p$to))])
+
+colnames(micro)<-colnames(datos$microbiome[,colnames(datos$microbiome)%in%unique(c(p$from,p$to))])
+micro$grupo<-variables_in_bacteria[variables_in_bacteria$Paciente %in% rownames(micro),"interaccion"]
+
+meta<-as.data.frame(datos$metabolome[,colnames(datos$metabolome)%in%unique(c(p$from,p$to))])
+colnames(meta)<-colnames(datos$metabolome[,colnames(datos$metabolome)%in%unique(c(p$from,p$to))])
+meta$grupo<-variables_in_bacteria[variables_in_bacteria$Paciente %in% rownames(meta),"interaccion"]
+
+ip<-as.data.frame(datos$IP[,colnames(datos$IP)%in%unique(c(p$from,p$to))])
+colnames(ip)<-colnames(datos$IP[,colnames(datos$IP)%in%unique(c(p$from,p$to))])
+ip$grupo<-variables_in_bacteria[variables_in_bacteria$Paciente %in% rownames(micro),"interaccion"]
+
+clin<-as.data.frame(datos$clinical_data[,colnames(datos$clinical_data)%in%unique(c(p$from,p$to))])
+colnames(clin)<-colnames(datos$clinical_data[,colnames(datos$clinical_data)%in%unique(c(p$from,p$to))])
+clin$grupo<-variables_in_bacteria[variables_in_bacteria$Paciente %in% rownames(micro),"interaccion"]
+
+```
+
+```{r}
+micro.melt <- reshape2::melt(micro)
+ggplot(data=micro.melt,aes(x=variable,y=value,fill=grupo))+geom_boxplot()+theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1))+xlab("")
+
+meta.melt <- reshape2::melt(meta)
+ggplot(data=meta.melt,aes(x=variable,y=log(value),fill=grupo))+geom_boxplot()+theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1))
+ip.melt <- reshape2::melt(ip)
+ggplot(data=ip.melt,aes(x=variable,y=value,fill=grupo))+geom_boxplot()+theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1))
+
+clin.melt <- reshape2::melt(clin)
+ggplot(data=clin.melt,aes(x=variable,y=value,fill=grupo))+geom_boxplot()+theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1))
+
+
+```
+
+### males no obese
+
+```{r}
+# p<-fn.network(datos=datos,lista=list_comp1,varcom=variables_in_bacteria,
+#               grupo.=3,p.value=0.5,complete=F)
+p<-fn.network(datos=datos,lista=list_comp2,varcom=variables_in_bacteria,
+              grupo.=3,p.value=0.05,complete=F)
+
+
+```
+
+
+```{r}
+
+micro<-data.frame(datos$microbiome[,colnames(datos$microbiome)%in%unique(c(p$from,p$to))])
+micro$grupo<-variables_in_bacteria[variables_in_bacteria$Paciente %in% rownames(micro),"interaccion"]
+
+meta<-data.frame(datos$metabolome[,colnames(datos$metabolome)%in%unique(c(p$from,p$to))])
+meta$grupo<-variables_in_bacteria[variables_in_bacteria$Paciente %in% rownames(meta),"interaccion"]
+
+ip<-data.frame(datos$IP[,colnames(datos$IP)%in%unique(c(p$from,p$to))])
+ip$grupo<-variables_in_bacteria[variables_in_bacteria$Paciente %in% rownames(micro),"interaccion"]
+
+clin<-data.frame(datos$clinical_data[,colnames(datos$clinical_data)%in%unique(c(p$from,p$to))])
+clin$grupo<-variables_in_bacteria[variables_in_bacteria$Paciente %in% rownames(micro),"interaccion"]
+
+```
+
+```{r}
+micro.melt <- reshape2::melt(micro)
+# ggplot(data=micro.melt,aes(x=variable,y=value,fill=grupo))+geom_boxplot()+theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1))
+
+meta.melt <- reshape2::melt(meta)
+p1<-ggplot(data=meta.melt,aes(x=variable,y=value,fill=grupo))+geom_boxplot()+theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1))
+#
+ # ip.melt <- reshape2::melt(ip) ggplot(data=ip.melt,aes(x=variable,y=value,fill=grupo))+geom_boxplot()+theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1))
+# 
+clin.melt <- reshape2::melt(clin)
+p2<-ggplot(data=clin.melt,aes(x=variable,y=value,fill=grupo))+geom_boxplot()+theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1))
+
+
+ggarrange(p1,p2,ncol= 2,common.legend = T)
+```
+
+
+
+### Males Obese
+
+```{r}
+p<-fn.network(datos=datos,lista=list_comp2,varcom=variables_in_bacteria,
+              grupo.=4,p.value=0.05,complete=F)
+
+
+
+```
+
+
+```{r}
+
+micro<-data.frame(datos$microbiome[,colnames(datos$microbiome)%in%unique(c(p$from,p$to))])
+micro$grupo<-variables_in_bacteria[variables_in_bacteria$Paciente %in% rownames(micro),"interaccion"]
+
+meta<-data.frame(datos$metabolome[,colnames(datos$metabolome)%in%unique(c(p$from,p$to))])
+meta$grupo<-variables_in_bacteria[variables_in_bacteria$Paciente %in% rownames(meta),"interaccion"]
+
+ip<-data.frame(datos$IP[,colnames(datos$IP)%in%unique(c(p$from,p$to))])
+ip$grupo<-variables_in_bacteria[variables_in_bacteria$Paciente %in% rownames(micro),"interaccion"]
+
+clin<-data.frame(datos$clinical_data[,colnames(datos$clinical_data)%in%unique(c(p$from,p$to))])
+clin$grupo<-variables_in_bacteria[variables_in_bacteria$Paciente %in% rownames(micro),"interaccion"]
+
+```
+
+```{r}
+micro.melt <- reshape2::melt(micro)
+p1<-ggplot(data=micro.melt,aes(x=variable,y=value,fill=grupo))+geom_boxplot()+theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1))
+
+meta.melt <- data.frame(reshape2::melt(meta))
+colnames(meta.melt)<-c("grupo","Citrate","value")
+p2<-ggplot(data=meta.melt,aes(x=Citrate,y=value,fill=grupo))+geom_boxplot()+theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1))+scale_x_discrete(labels="Citrate")
+
+
+ggarrange(p1,p2,nrow = 2)
+#  ip.melt <- reshape2::melt(ip) ggplot(data=ip.melt,aes(x=variable,y=value,fill=grupo))+geom_boxplot()+theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1))
+# 
+# clin.melt <- reshape2::melt(coin)
+# ggplot(data=clin.melt,aes(x=variable,y=value,fill=grupo))+geom_boxplot()+theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1))
+
+
+
+```
+
+## Variables que contrinuyen
+
+
+```{r}
+mixOmics::plotVar(sgccda.res_genus,blocks = 1)
+mixOmics::plotVar(sgccda.res_genus,blocks = 2)
+mixOmics::plotVar(sgccda.res_genus,blocks = 3)
+mixOmics::plotVar(sgccda.res_genus,blocks = 4)
+
+
+```
+
+
+```{r}
+p<-plotLoadings(sgccda.res_genus,contrib = "min",block=1,plot=T,ndisplay = mindis,comp=1,method="mean")
+q<-plotLoadings(sgccda.res_genus,contrib = "min",block=2,plot=T,ndisplay = mindis,comp = 1,method="median")
+r<-plotLoadings(sgccda.res_genus,contrib = "min",block=3,plot=T,ndisplay = mindis,comp = 1,method="median")
+s<-plotLoadings(sgccda.res_genus,contrib = "max",block=4,plot=T,ndisplay = mindis,comp = 2,method="median",size.title = 1)
+s<-plotLoadings(sgccda.res_genus,contrib = "max",block=4,plot=T,ndisplay = mindis,comp = 1,method="median")
+
+```
+
+
+
+```{r}
+cln <- scale(datos$clinical_data)
+cln.center <- colMeans(datos$clinical_data)
+cln.scale <- apply(datos$clinical_data,2, sd)
+csa <-sgccda.res_genus$loadings$clinical_data[,1] * (sgccda.res_genus$X$clinical_data[,1] -cln.center)/cln.scale
+
+csa[grep("MdGLP",names(csa))]
+w.min<-vector(mode = "logical",length=46)
+w.max<-vector(mode = "logical",length=46)
+
+which.comp = method.group = list()
+which.contrib = data.frame(matrix(FALSE, ncol = nlevels(sgccda.res_genus$Y) + 2, nrow = length(colnames(cln))))
+
+colnames(which.contrib)<-c(levels(sgccda.res_genus$Y),"Contrib","GroupContrib")
+
+  # for(k in 1:ncol(cln))
+  #   {
+  #       method.group[[k]] = tapply(cln[, k], Y, method, na.rm=TRUE) #method is either mean or median
+  #       # determine which group has the highest mean/median
+  #       which.contrib[k, 1:nlevels(Y)] = (method.group[[k]]) == get(min)((method.group[[k]])) # contrib is either min or max
+  #   }
+```
+```{r}
+grupo <-levels(interaccion)
+w<-vector(mode="list",length=6)
+names(w)<-levels(interaccion)
+for(i in 1:6){
+ w[[names(w)[i]]]<-which(apply(as.matrix(genera.abs[
+  rownames(genera.abs)%in%
+    variables_in_bacteria[variables_in_bacteria$interaccion==grupo[i],"Paciente"],-c(grep("^ud-",colnames(genera.abs)),285,284,283)]),2,function(x) sum(x)==0))
+}
+
+w2<-vector(mode="list",length=6)
+names(w2)<-levels(interaccion)
+for(i in 1:6){
+ w2[[names(w2)[i]]]<-which(apply(as.matrix(genera.abs[
+  rownames(genera.abs)%in%
+    variables_in_bacteria[variables_in_bacteria$interaccion==grupo[i],"Paciente"],-c(grep("^ud-",colnames(genera.abs)),285,284,283)]),2,function(x) sum(x)>0))
+  }
+
+w3<-lapply(w2, names)
+Reduce(intersect,w3)
+```
+
+```{r}
+boxplot(scale(datos$clinical_data[,6])~interaccion,las=2,cex.axis=0.5)
+
+```
+
