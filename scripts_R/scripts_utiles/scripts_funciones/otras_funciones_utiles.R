@@ -228,7 +228,7 @@ whichis <- function(x, y, nivel)
   as.factor(as.character(y[x == nivel]))
 
 ## vemos permanova
-analyze_multivariate <- function(X,grupo,obesidad){
+analyze_multivariate <- function(X,grupo,obesidad,sexo){
   
   pmanova.int <-
     adonis2(X ~ grupo * obesidad, by = "margin", method = "euclidean")$`Pr(>F)`[1]
@@ -296,11 +296,12 @@ analyze_multivariate <- function(X,grupo,obesidad){
   males <- adonis2(X[grupo == "Male", ] ~ whichis(grupo, obesidad, "Male"),
                    method = "euclidean",
                    by = "margin")$`Pr(>F)`[1]
-  
+  sex <- adonis2(X~sexo,by="margin",method="euclidean")$`Pr(>F)`[1]
   
   resultado <- c(
     obesidad = obe,
     grupo = pmanova.grupo,
+    sexo = sex,
     females_pcos = fp,
     females_males = fm,
     males_pcos = mp,
@@ -317,10 +318,10 @@ analyze_multivariate <- function(X,grupo,obesidad){
   )
   
   resultado.df <- data.frame(p.values=resultado)
-  resultado.df$p.adj <- c(resultado.df$p.values[1:2],
-                          p.adjust(resultado.df$p.values[3:4],"BH"),
-                          resultado.df$p.values[5:6],
-                          p.adjust(resultado.df$p.values[7:length(resultado.df$p.values)],
+  resultado.df$p.adj <- c(resultado.df$p.values[1:3],
+                          p.adjust(resultado.df$p.values[4:5],"BH"),
+                          resultado.df$p.values[6:7],
+                          p.adjust(resultado.df$p.values[8:length(resultado.df$p.values)],
                                    "BH"))
   resultado.df$significancia <- ifelse(resultado.df$p.values<0.05,resultado.df$p.values,NA)
   resultado.df$significancia.adj <- ifelse(resultado.df$p.adj<0.05,resultado.df$p.adj,NA)
