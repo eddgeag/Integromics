@@ -12,26 +12,27 @@ source(
 datos <- readRDS("../datos/preprocesado_05_02_23/novoom.rds")
 set.seed(126581)
 
-directorio <- "./scripts_R/metagenoma/resultados_filo_multivariante"
+directorio <-
+  "./scripts_R/metagenoma/resultados_filo_multivariante"
 
 if (!dir.exists(directorio)) {
   dir.create(directorio)
 }
 
-mean_filo <- scale(t(mean_aldex(datos$comunes$microbiota$filo)))
-filo.melt <- reshape2::melt(mean_filo)
+mean_genero <- scale(t(mean_aldex(datos$comunes$microbiota$filo)))
+genero.melt <- reshape2::melt(mean_genero)
 
 
 
-ggplot(filo.melt, aes(value)) + geom_density()
+ggplot(genero.melt, aes(value)) + geom_density()
 
 obesidad <- datos$comunes$variables_in_bacteria$OBESE
 grupo <- datos$comunes$variables_in_bacteria$GROUP
 sexo <- datos$comunes$variables_in_bacteria$SEX
-X <- mean_filo
+X <- mean_genero
 
 resultado <-
-  analyze_multivariate(t(mean_aldex(datos$comunes$microbiota$filo)), grupo, obesidad, sexo = sexo)
+  analyze_multivariate(t(mean_aldex(datos$comunes$microbiota$genero)), grupo, obesidad, sexo = sexo)
 
 
 
@@ -113,14 +114,158 @@ p5 <- ggarrange(p1, p2, p3, p4)
 
 
 
-p6 <- annotate_figure(p5, top = "filo")
+p6 <- annotate_figure(p5, top = "genero")
 
 p6
 
 ggsave(filename = file.path(directorio, "graficos_proporciones.jpg"),
        plot = p6)
 
+### Realizamos el análisis univariante y graficamos
+res <- analyze_data(X, grupo, obesidad,correccion = 2)
+medianas <- as.matrix(res$medianas)
+colnames(medianas)[1] <- "Obesidad"
+p.values <- as.matrix(res$p_valores)[,-c(1, 3)]
+
+p.values.mask <-
+  (apply(as.matrix(p.values), 1, function(x)
+    any(x < 0.05)))
+
+
+jpeg(file = file.path(directorio, "univariante.jpg"))
+corrplot::corrplot(
+  medianas,
+  method = "color",
+  is.corr = F,
+  tl.cex = 1,
+  number.cex = 0.6,
+  p.mat = p.values,
+  sig.level = 0.05,
+  insig = "label_sig",
+  bg = ifelse(medianas >= 0, "blue", "red")
+)
+
+dev.off()
+### HACEMOS PCA
+
+
 pcx <- prcomp((X), scale. = F)
+
+
+scores <- pcx$x
+loadings <- pcx$rotation
+
+res <- analyze_data(scores, grupo, obesidad)
+medianas <- as.matrix(res$medianas)
+colnames(medianas)[1] <- "Obesidad"
+p.values <- as.matrix(res$p_valores)[,-c(1, 3)]
+
+p.values.mask <-
+  (apply(as.matrix(p.values), 1, function(x)
+    any(x < 0.05)))
+
+p.values <- p.values[p.values.mask,]
+medianas <- medianas[p.values.mask,]
+jpeg(file = file.path(directorio, "asociacion_PCA.jpg"))
+corrplot::corrplot(
+  medianas,
+  method = "color",
+  is.corr = F,
+  tl.cex = 1,
+  number.cex = 0.6,
+  p.mat = p.values,
+  sig.level = 0.05,
+  insig = "label_sig",
+  bg = ifelse(medianas >= 0, "blue", "red")
+)
+
+dev.off()
+
+principal_components <- data.frame(
+  PC1 =  scores[,1],
+  PC2 = scores[, 2],
+  grupo = grupo,
+  obesidad = obesidad,
+  sexo = sexo
+)
+varianzas  <-  pcx$sdev ^ 2 / sum(pcx$sdev ^ 2)
+p1 <-
+  ggplot(principal_components, aes(PC1, PC2, color = sexo)) + geom_point() +
+  facet_wrap( ~ obesidad) + ylab(paste("PC2", varianzas[2], "%")) + xlab("")
+p2 <-
+  ggplot(principal_components, aes(PC1, PC2, color = obesidad)) + geom_point() +
+  facet_wrap( ~ grupo) + xlab(paste("PC1", varianzas[1], "%")) + ylab(paste("PC2", varianzas[2], "%"))
+p3 <- ggarrange(p1, p2, ncol = 1, nrow = 2)
+
+
+p4 <- annotate_figure(p3, top = 'PCA')
+p4
+
+ggsave(file.path(directorio, "PCA_scores.jpg"), p4)
+
+top <- 10
+
+p1 <-
+  fviz_pca_var(pcx, choice = "var", select.var = list(contrib = top))
+p2 <- fviz_screeplot(pcx, addlabels = TRUE, ylim = c(0, 15))
+
+p3 <- ggarrange(p1, p2)
+p3
+ggsave(file.path(directorio, "PCA_scree_loadings.jpg"), p3)
+
+dds <- p1$data
+top.vars.interes <- rownames(dds)
+objcor <-
+  psych::corr.p(cor(cbind(X[, top.vars.interes], scores[, 1:top]), method = "spearman"),
+                n = length(top.vars.interes),
+                adjust = "BH")
+cordata <- objcor$r
+pdata <- objcor$p
+cordata[c(ncol(cordata):(ncol(cordata) - length(top.vars.interes) + 1), ncol(cordata)),] <-
+  NA
+cordata[, 1:length(top.vars.interes)] <- NA
+cordata <-
+  matrix(cordata[!is.na(cordata)],
+         ncol = length(top.vars.interes),
+         byrow = T)
+rownames(cordata) <- top.vars.interes
+colnames(cordata) <- paste0("PC", 1:length(top.vars.interes))
+pdata <- objcor$p
+pdata[c(ncol(pdata):(ncol(pdata) - length(top.vars.interes) + 1), ncol(pdata)),] <-
+  NA
+pdata[, 1:length(top.vars.interes)] <- NA
+pdata <-
+  matrix(pdata[!is.na(pdata)], ncol = length(top.vars.interes), byrow = T)
+rownames(pdata) <- top.vars.interes
+colnames(pdata) <- paste0("PC", 1:length(top.vars.interes))
+
+if (any(pdata < 0.05)) {
+  p1 <-
+    ggcorrplot::ggcorrplot(
+      cordata,
+      p.mat = 1 - pdata,
+      hc.order = F,
+      sig.level = 0.95,
+      insig = "pch",
+      pch.cex = 3
+    )
+  
+} else{
+  p1 <-
+    ggcorrplot::ggcorrplot(
+      cordata,
+      p.mat = NULL,
+      hc.order = F,
+      sig.level = 0.95,
+      insig = "pch",
+      pch.cex = 3
+    )
+  
+  
+}
+p1
+ggsave(file.path(directorio, "correlacion_Vars_Pcs.jpg"), p1)
+
 # Contributions of variables to PC1
 p1 <- fviz_contrib(pcx,
                    choice = "var",
@@ -129,253 +274,14 @@ p1 <- fviz_contrib(pcx,
 # Contributions of variables to PC2
 p2 <- fviz_contrib(pcx,
                    choice = "var",
-                   axes = 2,
+                   axes = 3,
                    top = 10)
 
 p3 <- ggarrange(p1, p2)
 p3
+
 ggsave(
   filename = file.path(directorio, "graficos_contribuciones_PCA.jpg"),
   plot = p3
 )
-
-
-p1 <- fviz_screeplot(pcx, addlabels = TRUE, ylim = c(0, 15))
-
-resultados.univariantes <-
-  analyze_data(filo, grupo = grupo, obesidad, correccion = 1)
-
-nombres <-
-  rownames(resultados.univariantes$p_valores)[which(resultados.univariantes$interpretacion !=
-                                                      "")]
-nombres <- nombres[complete.cases(nombres)]
-p2 <-
-  fviz_pca_var(pcx,
-               col.var = "contrib",
-               select.var = list(names = nombres)) + theme(legend.position = "none")
-p2
-p3 <- ggarrange(p1, p2)
-p3
-ggsave(
-  filename = file.path(directorio, "graficos_contribuciones_scree_plotPCA.jpg"),
-  plot = p3
-)
-
-principal_components <- data.frame(
-  PC1 = pcx$x[, 1],
-  PC2 = pcx$x[, 2],
-  grupo = grupo,
-  obesidad = obesidad,
-  sexo = sexo
-)
-varianzas <- round(100 * pcx$sdev ^ 2 / sum(pcx$sdev ^ 2), 2)
-p1 <-
-  ggplot(principal_components, aes(PC1, PC2, color = sexo)) + geom_point() +
-  facet_wrap(~ obesidad) + ylab(paste("PC2", varianzas[2], "%")) + xlab("")
-p2 <-
-  ggplot(principal_components, aes(PC1, PC2, color = obesidad)) + geom_point() +
-  facet_wrap(~ grupo) + xlab(paste("PC1", varianzas[1], "%")) + ylab(paste("PC2", varianzas[2], "%"))
-p3 <- ggarrange(p1, p2, ncol = 1, nrow = 2)
-
-
-p4 <- annotate_figure(p3, top = 'PCA')
-p4
-ggsave(filename = file.path(directorio, "biplotPCA.jpg"),
-       plot = p4)
-
-
-## experimentar
-set.seed(126581)
-
-mean_filo <- scale(t(mean_aldex(datos$comunes$microbiota$filo)))
-
-train <- sample(1:nrow(mean_filo), size = nrow(mean_filo) * 0.7)
-
-
-train.data <- mean_filo[train,]
-test.data <- mean_filo[-train,]
-
-train.target <- obesidad[train]
-train.test <- obesidad[-train]
-
-metagenome.plsda <-
-  mixOmics::plsda(train.data,
-                  as.factor(as.character((train.target))),
-                  ncomp = 8,
-                  scale = F)
-
-plsda.metagenome <-
-  mixOmics::perf(
-    metagenome.plsda,
-    validation = "Mfold",
-    folds = 5,
-    nrepeat = 10,
-    # use repeated cross-validation
-    progressBar = FALSE,
-    auc = TRUE
-  ) # in
-
-plsda.metagenome$choice.ncomp # what is the optimal value of components according to perf()
-
-metagenome.plsda <-
-  mixOmics::plsda(test.data, as.factor(((train.test))), ncomp = 1, scale =
-                    F)
-
-
-prediccion <-
-  as.factor(predict(metagenome.plsda, test.data)$class$centroids.dist)
-
-
-obese.caret <- caret::confusionMatrix(prediccion, train.test)
-### grupo
-train.target <- grupo[train]
-train.test <- grupo[-train]
-
-metagenome.plsda <-
-  mixOmics::plsda(train.data,
-                  as.factor(as.character((train.target))),
-                  ncomp = 8,
-                  scale = F)
-
-plsda.metagenome <-
-  mixOmics::perf(
-    metagenome.plsda,
-    validation = "Mfold",
-    folds = 5,
-    nrepeat = 10,
-    # use repeated cross-validation
-    progressBar = FALSE,
-    auc = TRUE
-  ) # in
-
-plsda.metagenome$choice.ncomp # what is the optimal value of components according to perf()
-
-metagenome.plsda <-
-  mixOmics::plsda(test.data, (((train.test))), ncomp = 1, scale = F)
-
-
-prediccion <-
-  as.factor(predict(metagenome.plsda, test.data)$class$centroids.dist[, 1])
-
-levels(prediccion) <- c("Female", "PCOS", "Male")
-
-grupo.caret <- caret::confusionMatrix(prediccion, train.test)
-
-
-
-
-### grupo
-train.target <- sexo[train]
-train.test <- sexo[-train]
-
-metagenome.plsda <-
-  mixOmics::plsda(train.data,
-                  as.factor(as.character((train.target))),
-                  ncomp = 8,
-                  scale = F)
-
-plsda.metagenome <-
-  mixOmics::perf(
-    metagenome.plsda,
-    validation = "Mfold",
-    folds = 5,
-    nrepeat = 10,
-    # use repeated cross-validation
-    progressBar = FALSE,
-    auc = TRUE
-  ) # in
-
-plsda.metagenome$choice.ncomp # what is the optimal value of components according to perf()
-
-metagenome.plsda <-
-  mixOmics::plsda(test.data, (((train.test))), ncomp = 1, scale = F)
-
-
-prediccion <-
-  as.factor(predict(metagenome.plsda, test.data)$class$centroids.dist[, 1])
-
-
-sexo.caret <- caret::confusionMatrix(prediccion, train.test)
-
-
-res.plsda <-
-  data.frame(
-    obesidad = obese.caret$overall,
-    sexo = sexo.caret$overall,
-    grupo = grupo.caret$overall
-  )
-
-train.target <- sexo[train]
-train.test <- sexo[-train]
-metagenome.plsda <-
-  mixOmics::plsda(train.data,
-                  as.factor(as.character((train.target))),
-                  ncomp = 8,
-                  scale = F)
-
-plsda.metagenome <-
-  mixOmics::perf(
-    metagenome.plsda,
-    validation = "Mfold",
-    folds = 5,
-    nrepeat = 10,
-    # use repeated cross-validation
-    progressBar = FALSE,
-    auc = TRUE
-  ) # in
-
-ncopms <-
-  plsda.metagenome$choice.ncomp[1, 2]# what is the optimal value of components according to perf()
-
-metagenome.plsda <-
-  mixOmics::plsda(mean_filo, sexo, ncomp = ncopms, scale = F)
-
-plots_plsda <- data.frame(PC1 = metagenome.plsda$variates$X[, 1],
-                          grupo = grupo,
-                          obesidad = obesidad,
-                          sexo)
-
-ggplot(data = plots_plsda, aes(y = PC1, x = grupo, fill = obesidad)) + geom_boxplot() +
-  ylab(paste("PC1", round(100 * metagenome.plsda$prop_expl_var$X, 2), "%")) +
-  xlab("") + ggtitle("PLS-DA scores")
-
-
-mod <- car::Anova(lm(plots_plsda$PC1 ~ grupo * obesidad))
-pairwise.t.test(plots_plsda$PC1, grupo, "BH")
-
-pairwise.t.test(plots_plsda$PC1, interaction(grupo, obesidad), "BH")
-
-
-max.plsda <- (
-  mixOmics::plotLoadings(
-    metagenome.plsda,
-    comp = 1,
-    ndisplay = 10
-    ,
-    contrib = "max",
-    plot = F,
-    method = "median"
-  )
-)
-max.plsda <- bind_cols(filos = rownames(max.plsda), max.plsda)
-min.plsda <- (
-  mixOmics::plotLoadings(
-    metagenome.plsda,
-    comp = 1,
-    ndisplay = 10
-    ,
-    contrib = "min",
-    plot = F,
-    method = "median"
-  )
-)
-min.plsda <- bind_cols(filos = rownames(min.plsda), min.plsda)
-
-
-ggplot(max.plsda, aes(x = filos, y = importance, fill = GroupContrib)) +
-  geom_bar(stat = "identity") + coord_flip() + 
-  ylab("Loadings")+xlab("")
-
-
-
 

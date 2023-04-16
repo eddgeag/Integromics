@@ -648,7 +648,8 @@ analyze_data <-  function(X,grupo,obesidad,correccion=2){
 
   retorno <- list(bloque = X,
                   p_valores = res_p,
-                  interpretacion = retornos.df)
+                  interpretacion = retornos.df,
+                  medianas=res_w_t)
   
   
   return(retorno)
