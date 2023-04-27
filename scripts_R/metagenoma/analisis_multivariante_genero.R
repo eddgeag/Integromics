@@ -129,10 +129,13 @@ p.values <- as.matrix(res$p_valores)[,-c(1, 3)]
 
 p.values.mask <-
   (apply(as.matrix(p.values), 1, function(x)
-    any(x < 0.05)))
+    any(x < 0.005)))
 
 p.values <- p.values[p.values.mask,]
 medianas <- medianas[p.values.mask,]
+
+nombres_cor <- rownames(medianas)
+
 jpeg(file = file.path(directorio, "univariante.jpg"))
 corrplot::corrplot(
   medianas,
@@ -140,7 +143,7 @@ corrplot::corrplot(
   is.corr = F,
   tl.cex = 1,
   number.cex = 0.6,
-  p.mat = p.values,
+  p.mat =p.values,
   sig.level = 0.05,
   insig = "label_sig",
   bg = ifelse(medianas >= 0, "blue", "red")
@@ -285,4 +288,16 @@ ggsave(
   filename = file.path(directorio, "graficos_contribuciones_PCA.jpg"),
   plot = p3
 )
+
+
+pvalues.cor <- psych::corr.test(X[,nombres_cor],method = "pearson",adjust = "BH")$p
+pvalues.cor[lower.tri(pvalues.cor)] <- pvalues.cor[upper.tri(pvalues.cor)]
+diag(pvalues.cor) <- 1
+jpeg(file = file.path(directorio, "correlacion.jpg"))
+
+corrplot::corrplot(cor(X[,nombres_cor],method = "spearman"),p.mat = pvalues.cor,
+                   sig.level = 0.01,insig = "label_sig")
+
+dev.off()
+
 

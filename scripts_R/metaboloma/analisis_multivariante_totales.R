@@ -37,6 +37,15 @@ metaboloma.total <- datos$totales$metaboloma
 
 
 X <- transformacion(metaboloma.total)
+
+
+columnas_X <- add_classificacion_metaboloma(data.frame(columnas=colnames(X)))
+library(limma)
+csa <- add_classificacion_metaboloma(as.data.frame(strsplit2(colnames(X),"_")))
+csa$grupo_meta <- strsplit2(csa$grupo_meta,"_")[,1]
+colnames(X) <- apply(csa,1,function(x) paste(x[1],x[3],sep = "_"))
+
+X <- X[,order(csa$grupo_meta)]
 resultado <-
   analyze_multivariate(X, grupo, obesidad, sexo = sexo)
 
@@ -150,7 +159,7 @@ corrplot::corrplot(
   pch.cex = 1,
   pch.col = "white"
 )
-
+medianas_ <- medianas
 dev.off()
 ### HACEMOS PCA
 
@@ -291,3 +300,17 @@ ggsave(
   plot = p3
 )
 
+
+
+
+correlacion  <- psych::corr.test(X,method = "spearman",adjust = "BH")
+p.values <- correlacion$p
+p.values[lower.tri(correlacion$p)] <- p.values[upper.tri(correlacion$p)]
+
+diag(p.values) <- 1
+jpeg(filename = file.path(directorio,"correlacion.jpeg"))
+corrplot::corrplot(correlacion$r,tl.cex = 0.7,
+                   p.mat = correlacion$p,
+                   sig.level = 0.01,
+                   insig = "label_sig")
+dev.off

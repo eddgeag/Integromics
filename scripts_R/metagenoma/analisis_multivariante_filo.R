@@ -285,3 +285,12 @@ ggsave(
   plot = p3
 )
 
+pvalues.cor <- psych::corr.test(X,method = "spearman",adjust = "BH")$p
+pvalues.cor[lower.tri(pvalues.cor)] <- pvalues.cor[upper.tri(pvalues.cor)]
+diag(pvalues.cor) <- 1
+jpeg(file = file.path(directorio, "correlacion.jpg"))
+
+corrplot::corrplot(cor(X,method = "spearman"),p.mat = pvalues.cor,
+                   sig.level = 0.05,insig = "label_sig")
+
+dev.off()

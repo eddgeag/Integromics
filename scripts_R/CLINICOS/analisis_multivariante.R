@@ -6,26 +6,30 @@ library(ggrepel)
 library(ALDEx2)
 library(vegan)
 source("./scripts_R/scripts_utiles/scripts_funciones/otras_funciones_utiles.R")
-source("./scripts_R/scripts_utiles/scripts_funciones/analisis_univariante_e_interpretacion.R")
+source(
+  "./scripts_R/scripts_utiles/scripts_funciones/analisis_univariante_e_interpretacion.R"
+)
 source("./scripts_R/scripts_utiles/scripts_funciones/manova_vanvalen.R")
 datos <- readRDS("../datos/preprocesado_05_02_23/novoom.rds")
 
-directorio.totales <- "./scripts_R/CLINICOS/resultados_totales_multivariante"
+directorio.totales <-
+  "./scripts_R/CLINICOS/resultados_totales_multivariante"
 
-if(!dir.exists(directorio.totales)){
+if (!dir.exists(directorio.totales)) {
   dir.create(directorio.totales)
 }
 
-directorio.comunes <- "./scripts_R/CLINICOS/resultados_comunes_multivariante"
+directorio.comunes <-
+  "./scripts_R/CLINICOS/resultados_comunes_multivariante"
 
-if(!dir.exists(directorio.comunes)){
+if (!dir.exists(directorio.comunes)) {
   dir.create(directorio.comunes)
 }
 
 
-comunes <- T
+comunes <- F
 
-if(comunes){
+if (comunes) {
   directorio <- directorio.comunes
   
   obesidad <- datos$comunes$variables_in_bacteria$OBESE
@@ -33,7 +37,7 @@ if(comunes){
   sexo <- datos$comunes$variables_in_bacteria$SEX
   X <- scale(log2(as.matrix(datos$comunes$clinicos)))
   
-}else{
+} else{
   directorio <- directorio.totales
   
   obesidad <- datos$totales$general_data$OBESE
@@ -50,14 +54,16 @@ resultado <-
 
 
 
-X.df <- as.data.frame(as.matrix((dist(as.matrix(X)))))
+X.df <- as.data.frame(as.matrix((dist(as.matrix(
+  X
+)))))
 X.df$obesidad <- obesidad
 X.df$grupo <- grupo
 X.df$sexo <- sexo
 X.melt <- reshape2::melt(X.df)
 
 all_grupos <-
-  X.melt %>% group_by(obesidad, grupo) %>% dplyr::summarise(sum =mean(value))
+  X.melt %>% group_by(obesidad, grupo) %>% dplyr::summarise(sum = mean(value))
 all_grupos$sum <- 100 * all_grupos$sum / sum(all_grupos$sum)
 
 all_obesidad <-
@@ -86,7 +92,7 @@ p1 <-
   ggplot(data = barras_all, aes(x = grupo, y = suma, fill = obesidad)) +
   geom_bar(stat = "identity",
            position = "dodge") +
-  scale_fill_manual(values = c('steelblue', 'red')) + xlab("") + ylab("") 
+  scale_fill_manual(values = c('steelblue', 'red')) + xlab("") + ylab("")
 barras_obesidad <-
   X.melt %>% group_by(obesidad) %>% dplyr::summarise(suma = mean(value))
 
@@ -135,10 +141,10 @@ ggsave(filename = file.path(directorio, "graficos_proporciones.jpg"),
        plot = p6)
 
 ### Realizamos el análisis univariante y graficamos
-res <- analyze_data(X, grupo, obesidad,correccion = 3)
+res <- analyze_data(X, grupo, obesidad, correccion = 3)
 medianas <- as.matrix(res$medianas)
 colnames(medianas)[1] <- "Obesidad"
-p.values <- as.matrix(res$p_valores)[,-c(1, 3)]
+p.values <- as.matrix(res$p_valores)[, -c(1, 3)]
 
 p.values.mask <-
   (apply(as.matrix(p.values), 1, function(x)
@@ -154,7 +160,8 @@ corrplot::corrplot(
   number.cex = 0.6,
   p.mat = p.values,
   sig.level = 0.05,
-  insig = "label_sig",col =  ifelse(medianas >= 0, "blue", "red"),
+  insig = "label_sig",
+  col =  ifelse(medianas >= 0, "blue", "red"),
   pch.cex = 1,
   pch.col = "white"
 )
@@ -172,14 +179,14 @@ loadings <- pcx$rotation
 res <- analyze_data(scores, grupo, obesidad)
 medianas <- as.matrix(res$medianas)
 colnames(medianas)[1] <- "Obesidad"
-p.values <- as.matrix(res$p_valores)[,-c(1, 3)]
+p.values <- as.matrix(res$p_valores)[, -c(1, 3)]
 
 p.values.mask <-
   (apply(as.matrix(p.values), 1, function(x)
     any(x < 0.05)))
 
-p.values <- p.values[p.values.mask,]
-medianas <- medianas[p.values.mask,]
+p.values <- p.values[p.values.mask, ]
+medianas <- medianas[p.values.mask, ]
 jpeg(file = file.path(directorio, "asociacion_PCA.jpg"))
 corrplot::corrplot(
   medianas,
@@ -196,19 +203,19 @@ corrplot::corrplot(
 dev.off()
 
 principal_components <- data.frame(
-  PC1 =  scores[,1],
+  PC1 =  scores[, 1],
   PC2 = scores[, 2],
   grupo = grupo,
   obesidad = obesidad,
   sexo = sexo
 )
-varianzas  <-  round(100*pcx$sdev ^ 2 / sum(pcx$sdev ^ 2),2)
+varianzas  <-  round(100 * pcx$sdev ^ 2 / sum(pcx$sdev ^ 2), 2)
 p1 <-
   ggplot(principal_components, aes(PC1, PC2, color = grupo)) + geom_point() +
-  facet_wrap( ~ obesidad) + ylab(paste("PC2", varianzas[2], "%")) + xlab("")
+  facet_wrap(~ obesidad) + ylab(paste("PC2", varianzas[2], "%")) + xlab("")
 p2 <-
   ggplot(principal_components, aes(PC1, PC2, color = obesidad)) + geom_point() +
-  facet_wrap( ~ grupo) + xlab(paste("PC1", varianzas[1], "%")) + ylab(paste("PC2", varianzas[2], "%"))
+  facet_wrap(~ grupo) + xlab(paste("PC1", varianzas[1], "%")) + ylab(paste("PC2", varianzas[2], "%"))
 p3 <- ggarrange(p1, p2, ncol = 1, nrow = 2)
 
 
@@ -217,7 +224,7 @@ p4
 
 ggsave(file.path(directorio, "PCA_scores.jpg"), p4)
 
-top <- 5
+top <- 10
 
 p1 <-
   fviz_pca_var(pcx, choice = "var", select.var = list(contrib = top))
@@ -235,7 +242,7 @@ objcor <-
                 adjust = "BH")
 cordata <- objcor$r
 pdata <- objcor$p
-cordata[c(ncol(cordata):(ncol(cordata) - length(top.vars.interes) + 1), ncol(cordata)),] <-
+cordata[c(ncol(cordata):(ncol(cordata) - length(top.vars.interes) + 1), ncol(cordata)), ] <-
   NA
 cordata[, 1:length(top.vars.interes)] <- NA
 cordata <-
@@ -245,7 +252,7 @@ cordata <-
 rownames(cordata) <- top.vars.interes
 colnames(cordata) <- paste0("PC", 1:length(top.vars.interes))
 pdata <- objcor$p
-pdata[c(ncol(pdata):(ncol(pdata) - length(top.vars.interes) + 1), ncol(pdata)),] <-
+pdata[c(ncol(pdata):(ncol(pdata) - length(top.vars.interes) + 1), ncol(pdata)), ] <-
   NA
 pdata[, 1:length(top.vars.interes)] <- NA
 pdata <-
@@ -298,4 +305,3 @@ ggsave(
   filename = file.path(directorio, "graficos_contribuciones_PCA.jpg"),
   plot = p3
 )
-
