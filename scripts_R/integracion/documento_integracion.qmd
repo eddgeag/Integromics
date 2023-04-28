@@ -1,0 +1,135 @@
+---
+title: "Integracion"
+author: "Edmond"
+format: pdf
+editor: visual
+---
+
+
+#Cargamos datos, librerias y source code necesario
+```{r}
+source("../scripts_utiles/scripts_funciones/otras_funciones_utiles.R")
+library(r.jive)
+library(glmnet)
+library(caret)
+library(ALDEx2)
+library(MOFA2)
+library(psych)
+
+
+transformacion <- function(X) {
+  return((t(log2(X / colSums(
+    X
+  )))))
+}
+datos  <- readRDS("../../../datos/preprocesado_05_02_23/novoom.rds")
+
+obesidad <- datos$comunes$obesidad
+grupo <- datos$comunes$grupo
+sexo <- datos$comunes$variables_in_bacteria$SEX
+
+metaboloma <- (transformacion(datos$comunes$metaboloma))
+metagenoma <- scale(t(mean_aldex(datos$comunes$microbiota$genero)))
+
+```
+
+
+## Primero obtenemos el modelo MOFA2
+
+```{r}
+modelos <- lapply(list.files(path = "./quasi",
+                             full.names = T), load_model)
+
+w <- which.min(compare_elbo(modelos,return_data = T)$ELBO)
+
+modelo <- modelos[[w]]
+
+factores <- get_factors(modelo)[[1]]
+pesos <- Reduce(rbind,get_weights(modelo))
+```
+
+
+
+## Realizamos lo mismo pero con las varaibles de la regresion logistica
+
+```{r}
+set.seed(123456789)
+X <- as.data.frame(scale(cbind(metaboloma,metagenoma)))
+X$clase <- grupo
+levels(X$clase) <- make.names(levels(X$clase))
+idx <- sample(1:nrow(X),nrow(X)*0.7)
+train.data <- X[idx,]
+test.data <- X[-idx,]
+x <- as.matrix(train.data[,-ncol(train.data)])
+y <- train.data[,ncol(train.data)]
+cv.lasso <- cv.glmnet(x,y ,alpha = 1, family = "multinomial",nfolds=10,grouped=F)
+# Fit the final model on the training data
+model.grupo <- glmnet(x, y, alpha = 1, family = "multinomial",
+                lambda = cv.lasso$lambda.min)
+
+# Display regression coefficients
+coef(model.grupo)
+# Make predictions on the test data
+x.test <- model.matrix(test.data$clase ~., test.data)[,-1]
+predicted.classes <-stats::predict(model.grupo,x.test,type = "class")
+# Model accuracy
+confusionMatrix(grupo[-idx],as.factor(predicted.classes),)
+
+pcos.col <- colnames(X)[coef(model.grupo)$PCOS@i]
+fem.col <-colnames(X)[coef(model.grupo)$Female@i]
+male.col <- colnames(X)[coef(model.grupo)$Male@i]
+
+nomnres2 <- c(pcos.col,fem.col,male.col)
+
+reconstruccion <-  factores %*% t(pesos[male.col,])
+pca <- prcomp(reconstruccion,scale. = T)
+
+pca.plot <- data.frame(PC1=pca$x[,1],
+                       PC2=pca$x[,2],
+                       obesidad=obesidad,
+                       grupo = grupo,
+                       sexo=sexo)
+
+ggplot(pca.plot,aes(PC1,PC2,color=sexo))+geom_point()
+
+
+```
+
+```{r}
+
+X <- as.data.frame(cbind(metaboloma,metagenoma))
+X$clase <- obesidad
+levels(X$clase) <- make.names(levels(X$clase))
+idx <- sample(1:nrow(reconstruccion),nrow(reconstruccion)*0.6)
+train.data <- X[idx,]
+test.data <- X[-idx,]
+model.obesidad <- glmnet(train.data[,-ncol(train.data)], train.data$clase, alpha = 1, family = "binomial",
+                lambda = cv.lasso$lambda.min)
+
+# Display regression coefficients
+coef(model.obesidad)
+# Make predictions on the test data
+x.test <- model.matrix(test.data$clase ~., test.data)[,-1]
+predicted.classes <-stats::predict(model.obesidad,x.test,type = "class")
+# Model accuracy
+confusionMatrix(test.data$clase,as.factor(predicted.classes),)
+
+obesidad.coefs <- colnames(X)[coef(model.obesidad)@i]
+
+
+nomnres2 <- c(pcos.col,fem.col,male.col)
+
+reconstruccion <-  factores %*% t(pesos)
+pca <- prcomp(reconstruccion,scale. = F)
+
+pca.plot <- data.frame(PC1=pca$x[,1],
+                       PC2=pca$x[,2],
+                       obesidad=obesidad,
+                       grupo = grupo,
+                       sexo=sexo)
+
+ggplot(pca.plot,aes(PC1,PC2,color=obesidad))+geom_point()+facet_grid(~grupo)
+
+
+```
+

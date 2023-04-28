@@ -125,7 +125,9 @@ rownames(pesos)[variables_significativas]
 factores <- get_factors(modelo)[[1]]
 reconstruccion <- (factores) %*% t(pesos[variables_significativas,])
 
-
+grupo <- datos$comunes$grupo
+obesidad <- datos$comunes$obesidad
+sexo<- datos$comunes$variables_in_bacteria$SEX
 medias_latentes <- analyze_data(factores,grupo,obesidad)$medianas
 
 prueba.cor <- corr.test((medias_latentes),t(pesos),method ="spearman",adjust = "none")$p
@@ -139,14 +141,54 @@ nombres2 <- rownames(pesos)[feat_Extract]
 
 nombres <- c(nombres1,nombres2)
 
-reconstruccion <- factores %*% t(pesos[nombres2,])
+reconstruccion <- factores %*% t(pesos[colnames(reconstruccion.scale)[coef(model)@i],])
 
-pca <- prcomp(reconstruccion[grupo!="Male",],scale. = F)
+pca <- prcomp(reconstruccion,scale. = F)
 
 pca.plot <- data.frame(PC1=pca$x[,1],
                        PC2=pca$x[,2],
-                       obesidad=obesidad[grupo!="Male"],
-                       pcos = grupo[grupo!="Male"])
+                       obesidad=obesidad,
+                       grupo = grupo)
 
-ggplot(pca.plot,aes(PC1,PC2,color=obesidad))+geom_point()+facet_grid( ~pcos)
+ggplot(pca.plot,aes(PC1,PC2,color=grupo))+geom_point()
+
+library(glmnet)
+reconstruccion.scale <- as.data.frame(cbind(metaboloma,metagenoma))
+reconstruccion.scale$clase <- grupo
+levels(reconstruccion.scale$clase) <- make.names(levels(reconstruccion.scale$clase))
+idx <- sample(1:nrow(reconstruccion),nrow(reconstruccion)*0.6)
+train.data <- reconstruccion.scale[idx,]
+test.data <- reconstruccion.scale[-idx,]
+library(caret)
+x <- as.matrix(train.data[,-ncol(train.data)])
+y <- train.data[,ncol(train.data)]
+cv.lasso <- cv.glmnet(x,y ,alpha = 1, family = "multinomial",nfolds=10,grouped=F)
+# Fit the final model on the training data
+model <- glmnet(x, y, alpha = 1, family = "multinomial",
+                lambda = cv.lasso$lambda.min)
+
+# Display regression coefficients
+coef(model)
+# Make predictions on the test data
+x.test <- model.matrix(test.data$clase ~., test.data)[,-1]
+predicted.classes <-stats::predict(model,x.test,type = "class")
+# Model accuracy
+confusionMatrix(grupo[-idx],as.factor(predicted.classes),)
+
+pcos.col <- colnames(reconstruccion.scale)[coef(model)$PCOS@i]
+fem.col <-colnames(reconstruccion.scale)[coef(model)$Female@i]
+male.col <- colnames(reconstruccion.scale)[coef(model)$Male@i]
+
+nomnres2 <- c(pcos.col,fem.col,male.col)
+
+reconstruccion <-  factores %*% t(pesos[male.col,])
+pca <- prcomp(reconstruccion,scale. = T)
+
+pca.plot <- data.frame(PC1=pca$x[,1],
+                       PC2=pca$x[,2],
+                       obesidad=obesidad,
+                       grupo = grupo,
+                       sexo=sexo)
+
+ggplot(pca.plot,aes(PC1,PC2,color=sexo))+geom_point()
 
