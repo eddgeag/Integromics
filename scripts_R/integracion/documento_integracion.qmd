@@ -36,53 +36,65 @@ metagenoma <- scale(t(mean_aldex(datos$comunes$microbiota$genero)))
 
 ## Primero obtenemos el modelo MOFA2
 
-```{r}
-modelos <- lapply(list.files(path = "./quasi",
+```{r, warning=FALSE}
+modelos <- lapply(list.files(path = "./modelo_optimo_comp/",
                              full.names = T), load_model)
 
+null.modelos <- lapply(list.files(path="./quasi/",full.names = T),load_model)
 w <- which.min(compare_elbo(modelos,return_data = T)$ELBO)
 
 modelo <- modelos[[w]]
 
 factores <- get_factors(modelo)[[1]]
 pesos <- Reduce(rbind,get_weights(modelo))
+pesos.metaboloma <- get_weights(modelo)[[1]]
+
+```
+## Encontramos los pesos
+```{r}
+pesos.null <- lapply(null.modelos, function(x) Reduce(rbind,get_weights(x)))
+
+mean.diff <- lapply(pesos.null, function(x) abs(x-pesos))
+
+
+tensor <- (simplify2array(pesos.null))
+
+diferencias <- lapply(pesos.null, function(x) abs(x-pesos)==0)
+
+diferencias <- Reduce("+",diferencias)/length(pesos.null)
+
+
 ```
 
+vemos cuantos son sifnigicantes
+```{r}
+diferencias[diferencias>0.05]<-NA
 
-
-## Realizamos lo mismo pero con las varaibles de la regresion logistica
+diferencias <- diferencias[complete.cases(diferencias),]
+dim(diferencias)
+```
 
 ```{r}
-set.seed(123456789)
-X <- as.data.frame(scale(cbind(metaboloma,metagenoma)))
-X$clase <- grupo
-levels(X$clase) <- make.names(levels(X$clase))
-idx <- sample(1:nrow(X),nrow(X)*0.7)
-train.data <- X[idx,]
-test.data <- X[-idx,]
-x <- as.matrix(train.data[,-ncol(train.data)])
-y <- train.data[,ncol(train.data)]
-cv.lasso <- cv.glmnet(x,y ,alpha = 1, family = "multinomial",nfolds=10,grouped=F)
-# Fit the final model on the training data
-model.grupo <- glmnet(x, y, alpha = 1, family = "multinomial",
-                lambda = cv.lasso$lambda.min)
+length(grep("_mean",rownames(diferencias)))
+```
 
-# Display regression coefficients
-coef(model.grupo)
-# Make predictions on the test data
-x.test <- model.matrix(test.data$clase ~., test.data)[,-1]
-predicted.classes <-stats::predict(model.grupo,x.test,type = "class")
-# Model accuracy
-confusionMatrix(grupo[-idx],as.factor(predicted.classes),)
+```{r}
+rownames(diferencias)[grep("_mean",rownames(diferencias))]
+```
 
-pcos.col <- colnames(X)[coef(model.grupo)$PCOS@i]
-fem.col <-colnames(X)[coef(model.grupo)$Female@i]
-male.col <- colnames(X)[coef(model.grupo)$Male@i]
+```{r}
+length(grep("_mean",rownames(diferencias),invert = T))
 
-nomnres2 <- c(pcos.col,fem.col,male.col)
+```
 
-reconstruccion <-  factores %*% t(pesos[male.col,])
-pca <- prcomp(reconstruccion,scale. = T)
+Podemos ahora hacer un heatmap de antes de la integracion, despues, y con los pesos elegidos
+
+```{r}
+original <- cbind(metaboloma,metagenoma)
+mofa2.pre <- factores %*% t(pesos)
+
+
+pca <- prcomp(mofa2.pre,scale. = T)
 
 pca.plot <- data.frame(PC1=pca$x[,1],
                        PC2=pca$x[,2],
@@ -90,17 +102,36 @@ pca.plot <- data.frame(PC1=pca$x[,1],
                        grupo = grupo,
                        sexo=sexo)
 
-ggplot(pca.plot,aes(PC1,PC2,color=sexo))+geom_point()
+p1 <- ggplot(pca.plot,aes(PC1,PC2,color=obesidad))+geom_point() +ggtitle("pre")
 
 
+mofa2.post <- factores %*% t(pesos[rownames(diferencias),])
+pca <- prcomp(mofa2.post,scale. = T)
+
+pca.plot <- data.frame(PC1=pca$x[,1],
+                       PC2=pca$x[,2],
+                       obesidad=obesidad,
+                       grupo = grupo,
+                       sexo=sexo)
+
+p2 <- ggplot(pca.plot,aes(PC1,PC2,color=obesidad))+geom_point() +ggtitle("post")
+
+ggarrange(p1,p2,p1+facet_grid(~grupo),p2+facet_grid(~grupo))
 ```
 
-```{r}
 
-X <- as.data.frame(cbind(metaboloma,metagenoma))
+Ahora veremos las variables mas importantes al PCOS
+
+
+## Realizamos lo mismo pero con las varaibles de la regresion logistica
+
+```{r}
+set.seed(123456789)
+
+X<-as.data.frame( mofa2.pre)
 X$clase <- obesidad
 levels(X$clase) <- make.names(levels(X$clase))
-idx <- sample(1:nrow(reconstruccion),nrow(reconstruccion)*0.6)
+idx <- sample(1:nrow(X ),nrow(X )*0.6)
 train.data <- X[idx,]
 test.data <- X[-idx,]
 model.obesidad <- glmnet(train.data[,-ncol(train.data)], train.data$clase, alpha = 1, family = "binomial",
@@ -117,8 +148,6 @@ confusionMatrix(test.data$clase,as.factor(predicted.classes),)
 obesidad.coefs <- colnames(X)[coef(model.obesidad)@i]
 
 
-nomnres2 <- c(pcos.col,fem.col,male.col)
-
 reconstruccion <-  factores %*% t(pesos)
 pca <- prcomp(reconstruccion,scale. = F)
 
@@ -128,8 +157,118 @@ pca.plot <- data.frame(PC1=pca$x[,1],
                        grupo = grupo,
                        sexo=sexo)
 
-ggplot(pca.plot,aes(PC1,PC2,color=obesidad))+geom_point()+facet_grid(~grupo)
+p1 <- ggplot(pca.plot,aes(PC1,PC2,color=obesidad))+geom_point()
+p2 <- ggplot(pca.plot,aes(PC1,PC2,color=grupo))+geom_point()
+
+ggarrange(p1,p1+facet_grid(~grupo),p2,p2+facet_grid(~obesidad))
+```
 
 
+
+```{r}
+set.seed(123456789)
+X <- as.data.frame(mofa2.pre)
+X$clase <- grupo
+levels(X$clase) <- make.names(levels(X$clase))
+idx <- sample(1:nrow(X),nrow(X)*0.7)
+train.data <- X[idx,]
+test.data <- X[-idx,]
+x <- as.matrix(train.data[,-ncol(train.data)])
+y <- train.data[,ncol(train.data)]
+cv.lasso <- glmnet::cv.glmnet(x,y ,alpha = 1, family = "multinomial",nfolds=10,grouped=F)
+# Fit the final model on the training data
+model.grupo <- glmnet(x, y, alpha = 1, family = "multinomial",
+                lambda = cv.lasso$lambda.min)
+
+# Display regression coefficients
+coef(model.grupo)
+# Make predictions on the test data
+x.test <- model.matrix(test.data$clase ~., test.data)[,-1]
+predicted.classes <-stats::predict(model.grupo,x.test,type = "class")
+# Model accuracy
+confusionMatrix(grupo[-idx],as.factor(predicted.classes),)
+
+pcos.col <- unique(c(obesidad.coefs,colnames(X)[coef(model.grupo)$PCOS@i]))
+
+mofa2.pcos <- factores %*% t(pesos[pcos.col,])
+
+
+fem.col <-unique(c(obesidad.coefs,colnames(X)[coef(model.grupo)$Female@i]))
+mofa2.fems <- factores %*% t(pesos[fem.col,])
+
+
+male.col <- unique(c(obesidad.coefs,colnames(X)[coef(model.grupo)$Male@i]))
+
+mofa2.males<- factores %*% t(pesos[male.col,])
+
+funcion_pca <- function(X){
+  pca <- prcomp(X,scale. = T)
+
+  pca.plot <- data.frame(PC1=pca$x[,1],
+                       PC2=pca$x[,2],
+                       obesidad=obesidad,
+                       grupo = grupo,
+                       sexo=sexo)
+  p1 <- ggplot(pca.plot,aes(PC1,PC2,color=grupo))+geom_point()
+  p2 <- ggplot(pca.plot,aes(PC1,PC2,color=grupo))+geom_point()+facet_grid(~obesidad)
+  p3 <- ggplot(pca.plot,aes(PC1,PC2,color=obesidad))+geom_point()+facet_grid(~grupo)
+  
+  return(ggarrange(p1,p2,p3))
+}
+
+funcion_pca(mofa2.fems)
+```
+
+
+```{r}
+funcion_pca(mofa2.pcos)
+```
+
+
+```{r}
+funcion_pca(mofa2.males)
+
+```
+
+ahora todo conjunto
+```{r}
+grupo.vars <- unique(c(coef(model.grupo)$PCOS@i,
+                     coef(model.grupo)$Female@i,
+                     coef(model.grupo)$Male@i))
+variables.lasso <- c(obesidad.coefs,colnames(X)[grupo.vars])
+```
+### ahora tomaremos los pesos mas correlacionados con los datos originales teniendo en cuenta los pesos significantes
+```{r}
+correlacion <- corr.test((cbind(metaboloma,metagenoma)[,rownames(diferencias)]),(mofa2.post),method="spearman",adjust = "BH")
+
+pvalues <- correlacion$p
+pvalues[lower.tri(pvalues)] <- pvalues[upper.tri(pvalues)]
+
+diag(pvalues) <- ifelse(diag(pvalues>0.05),NA,diag(pvalues))
+
+pvalues.sig <- pvalues[complete.cases(pvalues),complete.cases(pvalues)]
+
+pvalues.sig[pvalues.sig>0.05]<-NA
+
+X <- factores %*% t(pesos[colnames(pvalues.sig),])
+pca <- prcomp(X,scale. = T)
+plot.pca <- data.frame(PC1=pca$x[,1],
+                       PC2=pca$x[,2],
+                       grupo=grupo,obesidad,sexo=sexo)
+ggplot(plot.pca,aes(PC1,PC2,color=obesidad))+geom_point()
+```
+
+```{r}
+metaboloma.vars <- rownames(diferencias)[grep("mean",rownames(diferencias))]
+metagenoma.vars <- rownames(diferencias)[-grep("mean",rownames(diferencias))]
+
+metaboloma.escogido <- metaboloma[,metaboloma.vars]
+metagenoma.escogido <- metagenoma[,metagenoma.vars]
+names(grupo) <- rownames(metaboloma.escogido)
+library(mixOmics)
+
+
+
+                                   
 ```
 
