@@ -425,15 +425,18 @@ final.diablo.model.sexo = block.splsda(X = X.list, Y = Y, ncomp = ncomp,
 
 
 
-datos.plot <- as.data.frame((bind_cols(final.diablo.model.sexo$variates$metaboloma[,1:2],final.diablo.model.sexo$variates$metagenoma[,1:2],
+datos.plot <- as.data.frame((bind_cols(final.diablo.model.grupo$variates$metaboloma[,1:2],final.diablo.model.grupo$variates$metagenoma[,1:2],
                                        grupo=grupo,obesidad=obesidad,sexo=sexo)))
 
 colnames(datos.plot) <-c("mPC1","mPC2","gPC1","gPC2","grupo","obesidad","sexo")
 
-ggplot(datos.plot,aes(mPC1,gPC1,color=obesidad))+geom_point()
+ggplot(datos.plot,aes(mPC1,gPC2,color=grupo))+geom_point()+facet_grid(~obesidad)
 
 diablo.sexo.metaboloma <- final.diablo.model.sexo$loadings$metaboloma
 diablo.sexo.metagenoma <- final.diablo.model.sexo$loadings$metaboloma
 
+diablos <- list(obesidad=final.diablo.model,
+                grupo=final.diablo.model.grupo,
+                sexo=final.diablo.model.sexo)
 
-
+saveRDS(diablos,"./scripts_R/integracion/diablos.rds")
