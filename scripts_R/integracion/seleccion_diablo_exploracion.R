@@ -309,7 +309,7 @@ tune.splsda.srbct <- tune.block.splsda(X.list, Y, ncomp = ncomp, # calculate for
                                  dist = 'max.dist', # use max.dist measure
                                  measure = "BER", # use balanced error rate of dist measure
                                  test.keepX = list.keepX,progressBar = T,
-                                 design = diseno) #
+                                 design = diseno) #'
 
 list.keepX <- tune.splsda.srbct$choice.keepX
 

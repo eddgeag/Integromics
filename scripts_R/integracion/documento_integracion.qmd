@@ -5,8 +5,8 @@ format: pdf
 editor: visual
 ---
 
-
 #Cargamos datos, librerias y source code necesario
+
 ```{r}
 source("../scripts_utiles/scripts_funciones/otras_funciones_utiles.R")
 library(r.jive)
@@ -33,7 +33,6 @@ metagenoma <- scale(t(mean_aldex(datos$comunes$microbiota$genero)))
 
 ```
 
-
 ## Primero obtenemos el modelo MOFA2
 
 ```{r, warning=FALSE}
@@ -50,7 +49,9 @@ pesos <- Reduce(rbind,get_weights(modelo))
 pesos.metaboloma <- get_weights(modelo)[[1]]
 
 ```
+
 ## Encontramos los pesos
+
 ```{r}
 pesos.null <- lapply(null.modelos, function(x) Reduce(rbind,get_weights(x)))
 
@@ -67,6 +68,7 @@ diferencias <- Reduce("+",diferencias)/length(pesos.null)
 ```
 
 vemos cuantos son sifnigicantes
+
 ```{r}
 diferencias[diferencias>0.05]<-NA
 
@@ -119,9 +121,7 @@ p2 <- ggplot(pca.plot,aes(PC1,PC2,color=obesidad))+geom_point() +ggtitle("post")
 ggarrange(p1,p2,p1+facet_grid(~grupo),p2+facet_grid(~grupo))
 ```
 
-
 Ahora veremos las variables mas importantes al PCOS
-
 
 ## Realizamos lo mismo pero con las varaibles de la regresion logistica
 
@@ -162,8 +162,6 @@ p2 <- ggplot(pca.plot,aes(PC1,PC2,color=grupo))+geom_point()
 
 ggarrange(p1,p1+facet_grid(~grupo),p2,p2+facet_grid(~obesidad))
 ```
-
-
 
 ```{r}
 set.seed(123456789)
@@ -219,11 +217,9 @@ funcion_pca <- function(X){
 funcion_pca(mofa2.fems)
 ```
 
-
 ```{r}
 funcion_pca(mofa2.pcos)
 ```
-
 
 ```{r}
 funcion_pca(mofa2.males)
@@ -231,13 +227,16 @@ funcion_pca(mofa2.males)
 ```
 
 ahora todo conjunto
+
 ```{r}
 grupo.vars <- unique(c(coef(model.grupo)$PCOS@i,
                      coef(model.grupo)$Female@i,
                      coef(model.grupo)$Male@i))
 variables.lasso <- c(obesidad.coefs,colnames(X)[grupo.vars])
 ```
+
 ### ahora tomaremos los pesos mas correlacionados con los datos originales teniendo en cuenta los pesos significantes
+
 ```{r}
 correlacion <- corr.test((cbind(metaboloma,metagenoma)[,rownames(diferencias)]),(mofa2.post),method="spearman",adjust = "BH")
 
@@ -271,4 +270,3 @@ library(mixOmics)
 
                                    
 ```
-
